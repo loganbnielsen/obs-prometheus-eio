@@ -1,0 +1,9 @@
+(test
+ (name test_prometheus)
+ (modules test_prometheus)
+ (libraries obs-eio obs_prometheus_eio eio eio_main alcotest unix cohttp-eio http uri))
+
+(test
+ (name test_obs_tls)
+ (modules test_obs_tls)
+ (libraries obs_prometheus_eio alcotest))
