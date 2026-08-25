@@ -5,10 +5,10 @@
     Typical use — long-running worker or service:
     {[
       let (prom_backend, render) = Obs_prometheus.create () in
-      let ot = Obs.create ~service:"payments-worker"
+      let ot = Obs_eio.create ~service:"payments-worker"
                  ~mono_clock:env#mono_clock ~backend:prom_backend in
 
-      let msgs = Obs.register_counter ot
+      let msgs = Obs_eio.register_counter ot
         ~name:"kafka_messages_processed_total"
         ~help:"Total Kafka messages processed"
         ~label_names:["topic"; "status"] in
@@ -21,9 +21,9 @@
       ignore body
     ]} *)
 
-val create : unit -> Obs.backend * (unit -> string)
+val create : unit -> Obs_eio.backend * (unit -> string)
 (** [create ()] returns a backend and a renderer.
-    Pass the backend to [Obs.create ~backend].
+    Pass the backend to [Obs_eio.create ~backend].
     Call the renderer to produce a Prometheus /metrics text body on demand.
     The backend is safe to call from multiple fibers and domains simultaneously. *)
 

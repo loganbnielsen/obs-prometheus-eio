@@ -59,7 +59,7 @@ let log_kind_conflict ~name ~existing ~incoming =
 
 (* A metric name must map to exactly one help string; the first registration
    wins the rendered # HELP line. This only catches a divergent help text,
-   not a divergent label-name set — Obs.t has no cross-registration registry
+   not a divergent label-name set — Obs_eio.t has no cross-registration registry
    of declared label names to check that against. *)
 let warn_on_help_mismatch ~name ~existing ~incoming =
   if existing <> incoming then
@@ -85,7 +85,7 @@ let get_or_create tbl key make =
     Hashtbl.add tbl key v;
     v
 
-let emit reg (e : Obs.metric_event) =
+let emit reg (e : Obs_eio.metric_event) =
   let key = sort_labels e.labels in
   Mutex.lock reg.r_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->
@@ -145,12 +145,12 @@ let emit reg (e : Obs.metric_event) =
        | other ->
          log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Histogram))
 
-(* Registered at [Obs.register_*] time, before any observation — so a
+(* Registered at [Obs_eio.register_*] time, before any observation — so a
    metric is visible on the next scrape (at its zero value, for the
    unlabeled case) rather than only after its first emit. For a labeled
    metric there is no concrete label combination to pre-seed a sample for
    yet, so only the family (and hence its # HELP/# TYPE lines) is created. *)
-let declare reg (d : Obs.metric_decl) =
+let declare reg (d : Obs_eio.metric_decl) =
   Mutex.lock reg.r_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->
     match d.decl_kind with
@@ -367,8 +367,8 @@ let push ~net ~clock ~url ~job renderer =
 let create () =
   let reg = { r_families = Hashtbl.create 8; r_mutex = Mutex.create () } in
   let backend = {
-    Obs.emit_span      = (fun _ -> ());
-    Obs.emit_metric    = emit reg;
-    Obs.declare_metric = declare reg;
+    Obs_eio.emit_span      = (fun _ -> ());
+    Obs_eio.emit_metric    = emit reg;
+    Obs_eio.declare_metric = declare reg;
   } in
   (backend, fun () -> render reg)

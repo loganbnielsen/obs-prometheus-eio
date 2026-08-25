@@ -20,10 +20,10 @@ let contains s sub =
     go 0
 
 let make_event ?(labels = []) ?(context = []) ~name ~help kind =
-  { Obs.name; help; kind; labels; context; service = "svc" }
+  { Obs_eio.name; help; kind; labels; context; service = "svc" }
 
 let make_decl ?(label_names = []) ~name ~help kind =
-  { Obs.decl_name = name; decl_help = help; decl_kind = kind;
+  { Obs_eio.decl_name = name; decl_help = help; decl_kind = kind;
     decl_label_names = label_names; decl_service = "svc" }
 
 let capture_stderr f =
@@ -64,13 +64,13 @@ let capture_stderr f =
 
 let test_counter_accumulates () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"reqs" ~help:"Total requests" ~labels:[("method", "POST")]
        (`Counter 5));
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"reqs" ~help:"Total requests" ~labels:[("method", "POST")]
        (`Counter 3));
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"reqs" ~help:"Total requests" ~labels:[("method", "GET")]
        (`Counter 10));
   let out = render () in
@@ -83,8 +83,8 @@ let test_counter_accumulates () =
 
 let test_counter_no_labels () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric (make_event ~name:"total" ~help:"desc" (`Counter 7));
-  backend.Obs.emit_metric (make_event ~name:"total" ~help:"desc" (`Counter 3));
+  backend.Obs_eio.emit_metric (make_event ~name:"total" ~help:"desc" (`Counter 7));
+  backend.Obs_eio.emit_metric (make_event ~name:"total" ~help:"desc" (`Counter 3));
   let out = render () in
   Alcotest.(check bool) "unlabeled counter sums to 10"
     true (has_line out "total 10")
@@ -95,7 +95,7 @@ let test_counter_no_labels () =
 
 let test_declare_unlabeled_counter_visible_at_zero () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.declare_metric (make_decl ~name:"reqs_total" ~help:"desc" `Counter);
+  backend.Obs_eio.declare_metric (make_decl ~name:"reqs_total" ~help:"desc" `Counter);
   let out = render () in
   Alcotest.(check bool) "# TYPE line present before any emit"
     true (has_line out "# TYPE reqs_total counter");
@@ -104,14 +104,14 @@ let test_declare_unlabeled_counter_visible_at_zero () =
 
 let test_declare_unlabeled_gauge_visible_at_zero () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.declare_metric (make_decl ~name:"inflight" ~help:"desc" `Gauge);
+  backend.Obs_eio.declare_metric (make_decl ~name:"inflight" ~help:"desc" `Gauge);
   let out = render () in
   Alcotest.(check bool) "zero-value sample line present before any emit"
     true (has_line out "inflight 0")
 
 let test_declare_unlabeled_histogram_visible_at_zero () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.declare_metric (make_decl ~name:"latency" ~help:"desc" `Histogram);
+  backend.Obs_eio.declare_metric (make_decl ~name:"latency" ~help:"desc" `Histogram);
   let out = render () in
   Alcotest.(check bool) "count line present before any observation"
     true (has_line out "latency_count 0");
@@ -120,7 +120,7 @@ let test_declare_unlabeled_histogram_visible_at_zero () =
 
 let test_declare_labeled_metric_creates_family_only () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.declare_metric
+  backend.Obs_eio.declare_metric
     (make_decl ~name:"reqs_total" ~help:"desc" ~label_names:["method"] `Counter);
   let out = render () in
   Alcotest.(check bool) "# TYPE line present (family declared)"
@@ -130,8 +130,8 @@ let test_declare_labeled_metric_creates_family_only () =
 
 let test_declare_then_emit_reuses_declared_family () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.declare_metric (make_decl ~name:"reqs_total" ~help:"desc" `Counter);
-  backend.Obs.emit_metric (make_event ~name:"reqs_total" ~help:"desc" (`Counter 5));
+  backend.Obs_eio.declare_metric (make_decl ~name:"reqs_total" ~help:"desc" `Counter);
+  backend.Obs_eio.emit_metric (make_event ~name:"reqs_total" ~help:"desc" (`Counter 5));
   let out = render () in
   Alcotest.(check bool) "declared-then-emitted counter shows the emitted value"
     true (has_line out "reqs_total 5")
@@ -140,8 +140,8 @@ let test_declare_kind_conflict_is_logged () =
   let (_out, err) =
     capture_stderr (fun () ->
       let (backend, render) = Obs_prometheus.create () in
-      backend.Obs.emit_metric (make_event ~name:"m" ~help:"desc" (`Counter 1));
-      backend.Obs.declare_metric (make_decl ~name:"m" ~help:"desc" `Gauge);
+      backend.Obs_eio.emit_metric (make_event ~name:"m" ~help:"desc" (`Counter 1));
+      backend.Obs_eio.declare_metric (make_decl ~name:"m" ~help:"desc" `Gauge);
       render ())
   in
   Alcotest.(check bool) "kind conflict from declare_metric logged"
@@ -154,9 +154,9 @@ let test_declare_kind_conflict_is_logged () =
 
 let test_gauge_last_write_wins () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"queue_depth" ~help:"Queue depth" (`Gauge 100.0));
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"queue_depth" ~help:"Queue depth" (`Gauge 42.0));
   let out = render () in
   Alcotest.(check bool) "# TYPE gauge"
@@ -166,11 +166,11 @@ let test_gauge_last_write_wins () =
 
 let test_gauge_labeled_independent () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"g" ~labels:[("host", "a")] (`Gauge 1.0));
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"g" ~labels:[("host", "b")] (`Gauge 2.0));
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"g" ~labels:[("host", "a")] (`Gauge 9.0));
   let out = render () in
   Alcotest.(check bool) {|host="a" updated to 9|}
@@ -185,9 +185,9 @@ let test_gauge_labeled_independent () =
 let test_histogram_buckets () =
   let (backend, render) = Obs_prometheus.create () in
   (* 0.007 falls in le=0.01 bucket; 0.042 falls in le=0.05 bucket *)
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"dur" ~help:"Duration" (`Histogram 0.007));
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"dur" ~help:"Duration" (`Histogram 0.042));
   let out = render () in
   Alcotest.(check bool) "# TYPE histogram"
@@ -207,7 +207,7 @@ let test_histogram_buckets () =
 
 let test_histogram_labeled () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"lat" ~help:"Latency" ~labels:[("route", "/charge")]
        (`Histogram 0.1));
   let out = render () in
@@ -226,7 +226,7 @@ let test_renderer_empty_when_no_events () =
 
 let test_renderer_includes_help_and_type () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"http_requests_total" ~help:"Total HTTP requests" (`Counter 1));
   let out = render () in
   Alcotest.(check bool) "# HELP line present"
@@ -236,7 +236,7 @@ let test_renderer_includes_help_and_type () =
 
 let test_label_value_escaping () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"g"
        ~labels:[("msg", "hello \"world\"\nnewline")]
        (`Gauge 1.0));
@@ -246,7 +246,7 @@ let test_label_value_escaping () =
 
 let test_help_text_escaping () =
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"line one\\nliteral, then a real\nnewline" (`Gauge 1.0));
   let out = render () in
   Alcotest.(check bool) "backslash and newline escaped in HELP text"
@@ -256,8 +256,8 @@ let test_help_mismatch_is_logged () =
   let (out, err) =
     capture_stderr (fun () ->
       let (backend, render) = Obs_prometheus.create () in
-      backend.Obs.emit_metric (make_event ~name:"m" ~help:"first help" (`Counter 1));
-      backend.Obs.emit_metric (make_event ~name:"m" ~help:"second help" (`Counter 1));
+      backend.Obs_eio.emit_metric (make_event ~name:"m" ~help:"first help" (`Counter 1));
+      backend.Obs_eio.emit_metric (make_event ~name:"m" ~help:"second help" (`Counter 1));
       render ())
   in
   Alcotest.(check bool) "first HELP text wins in rendered output"
@@ -270,11 +270,11 @@ let test_kind_conflicts_are_logged () =
   let (out, err) =
     capture_stderr (fun () ->
       let (backend, render) = Obs_prometheus.create () in
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"same_metric" ~help:"counter" (`Counter 1));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"same_metric" ~help:"gauge" (`Gauge 2.0));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"same_metric" ~help:"histogram" (`Histogram 0.5));
       render ())
   in
@@ -291,17 +291,17 @@ let test_kind_conflicts_for_each_registered_kind () =
   let (_out, err) =
     capture_stderr (fun () ->
       let (backend, render) = Obs_prometheus.create () in
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"counter_first" ~help:"counter" (`Counter 1));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"counter_first" ~help:"histogram" (`Histogram 0.5));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"gauge_first" ~help:"gauge" (`Gauge 2.0));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"gauge_first" ~help:"counter" (`Counter 1));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"histogram_first" ~help:"histogram" (`Histogram 0.5));
-      backend.Obs.emit_metric
+      backend.Obs_eio.emit_metric
         (make_event ~name:"histogram_first" ~help:"gauge" (`Gauge 2.0));
       render ())
   in
@@ -327,7 +327,7 @@ let test_concurrent_emit () =
   let tasks = List.init n_fibers (fun _ ->
     fun () ->
       for _ = 1 to n_emits do
-        backend.Obs.emit_metric
+        backend.Obs_eio.emit_metric
           (make_event ~name:"count" ~help:"test counter" (`Counter 1))
       done)
   in
@@ -389,7 +389,7 @@ let test_push_empty_renderer () =
 let test_push_simple_job () =
   Eio_main.run @@ fun env ->
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method ~last_path ~last_ct ~last_body ->
     let url = Printf.sprintf "http://localhost:%d" port in
@@ -406,7 +406,7 @@ let test_push_job_name_escaping () =
   (* Job names with special characters must be percent-encoded in the path. *)
   Eio_main.run @@ fun env ->
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method:_ ~last_path ~last_ct:_ ~last_body:_ ->
     let url = Printf.sprintf "http://localhost:%d" port in
@@ -425,7 +425,7 @@ let test_push_job_name_escaping () =
 let test_push_explicit_port () =
   Eio_main.run @@ fun env ->
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:202 (fun ~port ~last_method ~last_path ~last_ct:_ ~last_body:_ ->
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
@@ -438,7 +438,7 @@ let test_push_explicit_port () =
 let test_push_non_2xx_response () =
   Eio_main.run @@ fun env ->
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:400 (fun ~port ~last_method:_ ~last_path:_ ~last_ct:_ ~last_body:_ ->
     let url = Printf.sprintf "http://localhost:%d" port in
@@ -453,7 +453,7 @@ let test_push_non_2xx_response () =
 let test_push_500_response () =
   Eio_main.run @@ fun env ->
   let (backend, render) = Obs_prometheus.create () in
-  backend.Obs.emit_metric
+  backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:500 (fun ~port ~last_method:_ ~last_path:_ ~last_ct:_ ~last_body:_ ->
     let url = Printf.sprintf "http://localhost:%d" port in
@@ -491,10 +491,10 @@ let test_live_push () =
       Printf.sprintf "sun-obs-test-%d" (int_of_float (Unix.gettimeofday ()))
     in
     let (backend, render) = Obs_prometheus.create () in
-    backend.Obs.emit_metric
+    backend.Obs_eio.emit_metric
       (make_event ~name:"obs_test_counter_total" ~help:"obs-eio-prometheus live test counter"
          ~labels:[("job_name", unique_job)] (`Counter 42));
-    backend.Obs.emit_metric
+    backend.Obs_eio.emit_metric
       (make_event ~name:"obs_test_gauge" ~help:"obs-eio-prometheus live test gauge"
          (`Gauge 3.14));
     (match Obs_prometheus.push ~net:env#net ~clock:env#clock

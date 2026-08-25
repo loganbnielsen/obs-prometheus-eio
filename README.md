@@ -7,7 +7,7 @@ text exposition format on demand. Designed for long-running services that expose
 Prometheus cannot scrape directly.
 
 Not a general-purpose Prometheus client and not a replacement for `prometheus` or
-`prometheus-eio`: it is the Prometheus backend for `obs-eio`'s `Obs.backend` interface,
+`prometheus-eio`: it is the Prometheus backend for `obs-eio`'s `Obs_eio.backend` interface,
 for services that already use `obs-eio` for tracing and logging.
 
 Extracted from the [Sun](https://github.com/loganbnielsen/sun) platform, where it
@@ -33,9 +33,9 @@ PUSHGATEWAY_URL=http://localhost:9091 PROMETHEUS_URL=http://localhost:9090 dune 
 ## Public API
 
 ```ocaml
-val create : unit -> Obs.backend * (unit -> string)
+val create : unit -> Obs_eio.backend * (unit -> string)
 (** [create ()] returns a backend and a renderer.
-    Pass the backend to [Obs.create ~backend].
+    Pass the backend to [Obs_eio.create ~backend].
     Call the renderer to produce a Prometheus /metrics text body on demand.
 
     The backend is safe to use from multiple fibers and domains simultaneously. *)
@@ -57,10 +57,10 @@ val push
 
 ## Metric Families
 
-Each `register_*` call in `Obs` declares a metric family identified by `(name, label_names)`.
+Each `register_*` call in `Obs_eio` declares a metric family identified by `(name, label_names)`.
 The Prometheus backend builds a registry keyed on `name` when the first event arrives.
 
-| `Obs` call | Prometheus type | Accumulation |
+| `Obs_eio` call | Prometheus type | Accumulation |
 |---|---|---|
 | `register_counter` | `counter` | Adds delta to running total per `(name, labels)` |
 | `register_gauge` | `gauge` | Replaces current value per `(name, labels)` |
@@ -68,7 +68,7 @@ The Prometheus backend builds a registry keyed on `name` when the first event ar
 
 Histogram buckets are always
 `[0.005; 0.01; 0.025; 0.05; 0.1; 0.25; 0.5; 1.0; 2.5; 5.0; 10.0]` — there is currently no
-per-metric override. `Obs.register_histogram` has no `~buckets` parameter; deleting it
+per-metric override. `Obs_eio.register_histogram` has no `~buckets` parameter; deleting it
 was the honest choice over an option that looked configurable but was silently ignored.
 
 ## Rendered Output Format
@@ -140,15 +140,15 @@ first observation names one.
 
 ```ocaml
 let (prom_backend, render) = Obs_prometheus.create () in
-let ot = Obs.create ~service:"payments-worker"
+let ot = Obs_eio.create ~service:"payments-worker"
            ~mono_clock:env#mono_clock ~backend:prom_backend in
 
-let msgs_processed = Obs.register_counter ot
+let msgs_processed = Obs_eio.register_counter ot
   ~name:"kafka_messages_processed_total"
   ~help:"Total Kafka messages processed"
   ~label_names:["topic"; "status"] in
 
-let request_latency = Obs.register_histogram ot
+let request_latency = Obs_eio.register_histogram ot
   ~name:"request_duration_seconds"
   ~help:"Request latency"
   ~label_names:["route"] in
@@ -161,12 +161,12 @@ request_latency ~labels:[("route", "/charge")] 0.042;
 let metrics_body = render () in
 ```
 
-To expose both metrics and tracing/logging from one `Obs.t`, compose this backend with
+To expose both metrics and tracing/logging from one `Obs_eio.t`, compose this backend with
 `obs-loki-eio` (or any other `obs-eio` backend):
 
 ```ocaml
-let backend = Obs.compose prom_backend loki_backend in
-let ot = Obs.create ~service:"payments-worker" ~mono_clock:env#mono_clock ~backend in
+let backend = Obs_eio.compose prom_backend loki_backend in
+let ot = Obs_eio.create ~service:"payments-worker" ~mono_clock:env#mono_clock ~backend in
 ```
 
 ## Local Development
