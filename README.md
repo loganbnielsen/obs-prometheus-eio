@@ -104,6 +104,17 @@ type registry = {
 }
 ```
 
+## Metric Visibility Before First Observation
+
+Each `register_*` call delivers a `metric_decl` to this backend's `declare_metric`
+before returning — so a metric family exists (with its `# HELP`/`# TYPE` lines) on the
+very next scrape, not only after its first `emit_metric`. For an **unlabeled** metric
+(`label_names = []`) this also pre-seeds a zero-value sample line (`reqs_total 0`,
+matching the usual Prometheus client-library convention that a freshly-registered
+counter reads zero rather than being absent). A **labeled** metric only gets the family
+declared — there's no concrete label combination to pre-seed a sample for until the
+first observation names one.
+
 ## Implementation Notes
 
 - **Registry key:** `name` string. `label_names` and `help` are stored on first event;

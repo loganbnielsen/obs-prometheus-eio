@@ -145,6 +145,61 @@ let emit reg (e : Obs.metric_event) =
        | other ->
          log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Histogram))
 
+(* Registered at [Obs.register_*] time, before any observation — so a
+   metric is visible on the next scrape (at its zero value, for the
+   unlabeled case) rather than only after its first emit. For a labeled
+   metric there is no concrete label combination to pre-seed a sample for
+   yet, so only the family (and hence its # HELP/# TYPE lines) is created. *)
+let declare reg (d : Obs.metric_decl) =
+  Mutex.lock reg.r_mutex;
+  Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->
+    match d.decl_kind with
+    | `Counter ->
+      let fam =
+        get_or_create reg.r_families d.decl_name (fun () ->
+          FCounter { f_help = d.decl_help; f_series = Hashtbl.create 4 })
+      in
+      (match fam with
+       | FCounter { f_help; f_series } ->
+         warn_on_help_mismatch ~name:d.decl_name ~existing:f_help ~incoming:d.decl_help;
+         if d.decl_label_names = [] then
+           ignore (get_or_create f_series [] (fun () -> { c_value = 0.0 }))
+       | other ->
+         log_kind_conflict ~name:d.decl_name ~existing:(family_kind other) ~incoming:Counter)
+    | `Gauge ->
+      let fam =
+        get_or_create reg.r_families d.decl_name (fun () ->
+          FGauge { f_help = d.decl_help; f_series = Hashtbl.create 4 })
+      in
+      (match fam with
+       | FGauge { f_help; f_series } ->
+         warn_on_help_mismatch ~name:d.decl_name ~existing:f_help ~incoming:d.decl_help;
+         if d.decl_label_names = [] then
+           ignore (get_or_create f_series [] (fun () -> { g_value = 0.0 }))
+       | other ->
+         log_kind_conflict ~name:d.decl_name ~existing:(family_kind other) ~incoming:Gauge)
+    | `Histogram ->
+      let fam =
+        get_or_create reg.r_families d.decl_name (fun () ->
+          FHistogram {
+            f_help   = d.decl_help;
+            f_bounds = default_bounds;
+            f_series = Hashtbl.create 4;
+          })
+      in
+      (match fam with
+       | FHistogram { f_help; f_bounds; f_series } ->
+         warn_on_help_mismatch ~name:d.decl_name ~existing:f_help ~incoming:d.decl_help;
+         if d.decl_label_names = [] then
+           ignore (get_or_create f_series [] (fun () -> {
+             h_bounds = f_bounds;
+             h_counts = Array.make (Array.length f_bounds + 1) 0;
+             h_sum    = 0.0;
+             h_count  = 0;
+           }))
+       | other ->
+         log_kind_conflict ~name:d.decl_name ~existing:(family_kind other) ~incoming:Histogram))
+
 (* ------------------------------------------------------------------ *)
 (* Renderer                                                            *)
 (* ------------------------------------------------------------------ *)
@@ -312,7 +367,8 @@ let push ~net ~clock ~url ~job renderer =
 let create () =
   let reg = { r_families = Hashtbl.create 8; r_mutex = Mutex.create () } in
   let backend = {
-    Obs.emit_span   = (fun _ -> ());
-    Obs.emit_metric = emit reg;
+    Obs.emit_span      = (fun _ -> ());
+    Obs.emit_metric    = emit reg;
+    Obs.declare_metric = declare reg;
   } in
   (backend, fun () -> render reg)

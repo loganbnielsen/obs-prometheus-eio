@@ -22,6 +22,10 @@ let contains s sub =
 let make_event ?(labels = []) ?(context = []) ~name ~help kind =
   { Obs.name; help; kind; labels; context; service = "svc" }
 
+let make_decl ?(label_names = []) ~name ~help kind =
+  { Obs.decl_name = name; decl_help = help; decl_kind = kind;
+    decl_label_names = label_names; decl_service = "svc" }
+
 let capture_stderr f =
   let old_stderr = Unix.dup Unix.stderr in
   let read_fd, write_fd = Unix.pipe () in
@@ -84,6 +88,65 @@ let test_counter_no_labels () =
   let out = render () in
   Alcotest.(check bool) "unlabeled counter sums to 10"
     true (has_line out "total 10")
+
+(* ------------------------------------------------------------------ *)
+(* declare_metric                                                      *)
+(* ------------------------------------------------------------------ *)
+
+let test_declare_unlabeled_counter_visible_at_zero () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs.declare_metric (make_decl ~name:"reqs_total" ~help:"desc" `Counter);
+  let out = render () in
+  Alcotest.(check bool) "# TYPE line present before any emit"
+    true (has_line out "# TYPE reqs_total counter");
+  Alcotest.(check bool) "zero-value sample line present before any emit"
+    true (has_line out "reqs_total 0")
+
+let test_declare_unlabeled_gauge_visible_at_zero () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs.declare_metric (make_decl ~name:"inflight" ~help:"desc" `Gauge);
+  let out = render () in
+  Alcotest.(check bool) "zero-value sample line present before any emit"
+    true (has_line out "inflight 0")
+
+let test_declare_unlabeled_histogram_visible_at_zero () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs.declare_metric (make_decl ~name:"latency" ~help:"desc" `Histogram);
+  let out = render () in
+  Alcotest.(check bool) "count line present before any observation"
+    true (has_line out "latency_count 0");
+  Alcotest.(check bool) "+Inf bucket present before any observation"
+    true (has_line out {|latency_bucket{le="+Inf"} 0|})
+
+let test_declare_labeled_metric_creates_family_only () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs.declare_metric
+    (make_decl ~name:"reqs_total" ~help:"desc" ~label_names:["method"] `Counter);
+  let out = render () in
+  Alcotest.(check bool) "# TYPE line present (family declared)"
+    true (has_line out "# TYPE reqs_total counter");
+  Alcotest.(check bool) "no guessed sample line for a labeled metric"
+    true (not (has_line out "reqs_total 0"))
+
+let test_declare_then_emit_reuses_declared_family () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs.declare_metric (make_decl ~name:"reqs_total" ~help:"desc" `Counter);
+  backend.Obs.emit_metric (make_event ~name:"reqs_total" ~help:"desc" (`Counter 5));
+  let out = render () in
+  Alcotest.(check bool) "declared-then-emitted counter shows the emitted value"
+    true (has_line out "reqs_total 5")
+
+let test_declare_kind_conflict_is_logged () =
+  let (_out, err) =
+    capture_stderr (fun () ->
+      let (backend, render) = Obs_prometheus.create () in
+      backend.Obs.emit_metric (make_event ~name:"m" ~help:"desc" (`Counter 1));
+      backend.Obs.declare_metric (make_decl ~name:"m" ~help:"desc" `Gauge);
+      render ())
+  in
+  Alcotest.(check bool) "kind conflict from declare_metric logged"
+    true (contains err
+      "metric family kind conflict for m: existing counter, incoming gauge")
 
 (* ------------------------------------------------------------------ *)
 (* Gauge                                                               *)
@@ -468,6 +531,14 @@ let () =
     "histogram", [
       test_case "observations sorted into correct buckets" `Quick test_histogram_buckets;
       test_case "labeled histogram lines"                  `Quick test_histogram_labeled;
+    ];
+    "declare_metric", [
+      test_case "unlabeled counter visible at zero"     `Quick test_declare_unlabeled_counter_visible_at_zero;
+      test_case "unlabeled gauge visible at zero"       `Quick test_declare_unlabeled_gauge_visible_at_zero;
+      test_case "unlabeled histogram visible at zero"   `Quick test_declare_unlabeled_histogram_visible_at_zero;
+      test_case "labeled metric only creates the family" `Quick test_declare_labeled_metric_creates_family_only;
+      test_case "declare then emit reuses the family"    `Quick test_declare_then_emit_reuses_declared_family;
+      test_case "kind conflict from declare is logged"   `Quick test_declare_kind_conflict_is_logged;
     ];
     "renderer", [
       test_case "empty string when no events"           `Quick test_renderer_empty_when_no_events;
