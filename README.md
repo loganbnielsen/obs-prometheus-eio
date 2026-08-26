@@ -62,8 +62,8 @@ val push
     Not recommended for long-running services — use the renderer + scrape endpoint instead. *)
 ```
 
-`Obs_prometheus_tls` is also installed for tests and advanced callers that need the
-typed HTTPS setup errors used by `push`.
+HTTPS setup is delegated to `https-eio`, which provides the typed setup errors used by
+`push`.
 
 ## Metric Families
 
