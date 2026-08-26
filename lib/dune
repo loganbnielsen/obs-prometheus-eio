@@ -2,6 +2,5 @@
  (name obs_prometheus_eio)
  (public_name obs-prometheus-eio)
  (wrapped false)
- (modules Obs_prometheus Obs_prometheus_tls)
- (libraries obs-eio eio eio.unix unix cohttp-eio http uri tls-eio x509 domain-name ptime
-   mirage-crypto-rng.unix))
+ (modules Obs_prometheus)
+ (libraries obs-eio eio eio.unix unix cohttp-eio http uri https-eio))

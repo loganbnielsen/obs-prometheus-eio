@@ -345,9 +345,9 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
     (try
        Eio.Time.with_timeout_exn clock timeout (fun () ->
          Eio.Switch.run (fun sw ->
-           match Obs_prometheus_tls.https_for_uri target with
+           match Https_eio.https_for_uri target with
            | Error error ->
-             Error ("Pushgateway push: " ^ Obs_prometheus_tls.error_to_string error)
+             Error ("Pushgateway push: " ^ Https_eio.error_to_string error)
            | Ok https ->
              let client = Cohttp_eio.Client.make ~https net in
              let (resp, _body) =
