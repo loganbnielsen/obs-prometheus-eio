@@ -12,6 +12,8 @@ jobs:
       - uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: 5.4.x
+      - name: Pin obs-eio
+        run: opam pin add obs-eio git+https://github.com/loganbnielsen/obs-eio.git#main --no-action
       - name: Install opam dependencies
         run: opam install . --deps-only --with-test --with-doc
       - name: Lint opam file

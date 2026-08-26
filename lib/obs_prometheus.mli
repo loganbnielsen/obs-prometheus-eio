@@ -30,6 +30,10 @@ val create : unit -> Obs_eio.backend * (unit -> string)
 val push
   :  net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
+  -> ?timeout:float
+     (** Request timeout in seconds. Default: [5.0]. *)
+  -> ?headers:(string * string) list
+     (** Extra HTTP headers, e.g. auth/proxy headers. *)
   -> url:string
      (** Pushgateway base URL, e.g. ["http://localhost:9091"] *)
   -> job:string
@@ -39,4 +43,7 @@ val push
   -> (unit, string) result
 (** Push the current metric snapshot to a Prometheus Pushgateway.
     Returns [Ok ()] immediately if the renderer produces no output (no metrics emitted yet).
-    For long-running services use the renderer + scrape endpoint instead. *)
+    Otherwise performs one synchronous HTTP PUT on the calling fiber, bounded by
+    [timeout]. Returns [Error msg] for timeout, TLS setup failure, connection
+    failure, or non-2xx HTTP response. For long-running services use the renderer +
+    scrape endpoint instead. *)

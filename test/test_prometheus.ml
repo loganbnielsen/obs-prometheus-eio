@@ -392,7 +392,7 @@ let test_push_simple_job () =
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method ~last_path ~last_ct ~last_body ->
-    let url = Printf.sprintf "http://localhost:%d" port in
+    let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"my-worker" render in
     Alcotest.(check (result unit string)) "simple job → Ok ()" (Ok ()) result;
@@ -409,7 +409,7 @@ let test_push_job_name_escaping () =
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method:_ ~last_path ~last_ct:_ ~last_body:_ ->
-    let url = Printf.sprintf "http://localhost:%d" port in
+    let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"my job/v2" render in
     Alcotest.(check (result unit string)) "escaped job → Ok ()" (Ok ()) result;
@@ -441,7 +441,7 @@ let test_push_non_2xx_response () =
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:400 (fun ~port ~last_method:_ ~last_path:_ ~last_ct:_ ~last_body:_ ->
-    let url = Printf.sprintf "http://localhost:%d" port in
+    let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"worker" render in
     match result with
@@ -456,7 +456,7 @@ let test_push_500_response () =
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
   with_mock_pushgateway env ~status_code:500 (fun ~port ~last_method:_ ~last_path:_ ~last_ct:_ ~last_body:_ ->
-    let url = Printf.sprintf "http://localhost:%d" port in
+    let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"worker" render in
     match result with
@@ -488,7 +488,7 @@ let test_live_push () =
   | Some pg_url, prom_url_opt ->
     Eio_main.run @@ fun env ->
     let unique_job =
-      Printf.sprintf "sun-obs-test-%d" (int_of_float (Unix.gettimeofday ()))
+      Printf.sprintf "obs-prometheus-test-%d" (int_of_float (Unix.gettimeofday ()))
     in
     let (backend, render) = Obs_prometheus.create () in
     backend.Obs_eio.emit_metric

@@ -327,7 +327,7 @@ let render reg =
 (* Pushgateway HTTP client                                            *)
 (* ------------------------------------------------------------------ *)
 
-let push ~net ~clock ~url ~job renderer =
+let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
   let body = renderer () in
   if body = "" then Ok ()
   else
@@ -336,14 +336,14 @@ let push ~net ~clock ~url ~job renderer =
     let target = Uri.with_path base ("/metrics/job/" ^ encoded_job) in
     let headers =
       Http.Header.of_list
-        [ ("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-        ; ("Content-Length", string_of_int (String.length body))
-        ; ("Connection", "close")
-        ]
+        ([ ("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+         ; ("Content-Length", string_of_int (String.length body))
+         ; ("Connection", "close")
+         ] @ headers)
     in
     let body_src = Cohttp_eio.Body.of_string body in
     (try
-       Eio.Time.with_timeout_exn clock 5.0 (fun () ->
+       Eio.Time.with_timeout_exn clock timeout (fun () ->
          Eio.Switch.run (fun sw ->
            match Obs_prometheus_tls.https_for_uri target with
            | Error error ->
@@ -357,7 +357,8 @@ let push ~net ~clock ~url ~job renderer =
              if code >= 200 && code < 300 then Ok ()
              else Error (Printf.sprintf "Pushgateway returned HTTP %d" code)))
      with
-     | Eio.Time.Timeout -> Error "Pushgateway push timed out after 5s"
+     | Eio.Time.Timeout ->
+       Error (Printf.sprintf "Pushgateway push timed out after %gs" timeout)
      | exn              -> Error ("Pushgateway push: " ^ Printexc.to_string exn))
 
 (* ------------------------------------------------------------------ *)

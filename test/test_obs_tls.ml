@@ -2,12 +2,12 @@ let test_tls_authenticator_fails_closed_without_ca_bundle () =
   Alcotest.(check bool) "missing CA paths are rejected"
     true
     (match Obs_prometheus_tls.authenticator
-             ~ca_paths:["/sun/does/not/exist/ca-certificates.crt"] () with
+             ~ca_paths:["/obs-prometheus-eio/does/not/exist/ca-certificates.crt"] () with
      | Error `No_system_ca_bundle -> true
      | _ -> false)
 
 let test_tls_authenticator_ignores_invalid_ca_bundle () =
-  let path = Filename.temp_file "sun-invalid-ca" ".pem" in
+  let path = Filename.temp_file "obs-prometheus-invalid-ca" ".pem" in
   Fun.protect
     (fun () ->
        let oc = open_out path in
@@ -24,7 +24,7 @@ let test_tls_wrapper_returns_typed_error_without_ca_bundle () =
   Alcotest.(check bool) "wrapper setup returns typed CA error"
     true
     (match Obs_prometheus_tls.make_https_wrapper
-             ~ca_paths:["/sun/does/not/exist/ca-certificates.crt"] () with
+             ~ca_paths:["/obs-prometheus-eio/does/not/exist/ca-certificates.crt"] () with
      | Error `No_system_ca_bundle -> true
      | _ -> false)
 

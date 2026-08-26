@@ -10,7 +10,7 @@
 Accumulates counter/gauge/histogram deltas in-process and renders them as Prometheus
 text exposition format on demand, plus an optional Pushgateway client for short-lived
 jobs. Not a general-purpose Prometheus client and not a replacement for prometheus or
-prometheus-eio: it is the Prometheus backend for obs-eio's Obs.backend interface,
+prometheus-eio: it is the Prometheus backend for obs-eio's Obs_eio.backend interface,
 positioned for services that already use obs-eio for tracing and logging.")
  (maintainers "lbendtlynielsen@gmail.com")
  (authors "lbendtly")

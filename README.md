@@ -17,6 +17,8 @@ continues to be used as an external dependency.
 
 ```bash
 eval $(opam env)
+# Until obs-eio is in your switch from OPAM, pin the sibling checkout:
+# opam pin add obs-eio ../obs-eio -yn
 dune build
 ```
 
@@ -43,6 +45,10 @@ val create : unit -> Obs_eio.backend * (unit -> string)
 val push
   :  net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
+  -> ?timeout:float
+     (** Request timeout in seconds. Default: 5.0. *)
+  -> ?headers:(string * string) list
+     (** Extra HTTP headers, e.g. auth/proxy headers. *)
   -> url:string
      (** Pushgateway base URL, e.g. "http://localhost:9091" *)
   -> job:string
@@ -52,13 +58,18 @@ val push
   -> (unit, string) result
 (** Push the current metric snapshot to a Prometheus Pushgateway.
     Use for short-lived jobs (cron, batch) that Prometheus cannot scrape directly.
+    Performs one synchronous HTTP PUT on the calling fiber, bounded by timeout.
     Not recommended for long-running services — use the renderer + scrape endpoint instead. *)
 ```
 
+`Obs_prometheus_tls` is also installed for tests and advanced callers that need the
+typed HTTPS setup errors used by `push`.
+
 ## Metric Families
 
-Each `register_*` call in `Obs_eio` declares a metric family identified by `(name, label_names)`.
-The Prometheus backend builds a registry keyed on `name` when the first event arrives.
+Each `register_*` call in `Obs_eio` declares a metric family. The Prometheus backend
+stores families by metric `name`; call-site label values select series inside that
+family.
 
 | `Obs_eio` call | Prometheus type | Accumulation |
 |---|---|---|
@@ -117,7 +128,7 @@ first observation names one.
 
 ## Implementation Notes
 
-- **Registry key:** `name` string. `label_names` and `help` are stored on first event;
+- **Registry key:** `name` string. `help` is stored on first event;
   subsequent events only update the value map. A later event with a different `help`
   string for the same `name` is logged to stderr and ignored — the first `help` wins.
   A metric-kind conflict (e.g. a `counter` registered where a `gauge` already exists
