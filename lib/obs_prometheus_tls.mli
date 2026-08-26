@@ -21,5 +21,9 @@ val make_https_wrapper : ?ca_paths:string list -> unit -> (https_wrapper, error)
 val https_for_uri : Uri.t -> (https_wrapper option, error) result
 (** Return [Some wrapper] for [https://] URIs, [None] otherwise. *)
 
+val default_https_wrapper_cache : (https_wrapper, error) result option Atomic.t
+(** Exposed only so tests can force a cold cache before exercising the
+    first-use domain race. Not part of the module's intended API. *)
+
 val error_to_string : error -> string
 (** Human-readable error text suitable for logs. *)

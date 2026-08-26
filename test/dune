@@ -6,4 +6,5 @@
 (test
  (name test_obs_tls)
  (modules test_obs_tls)
- (libraries obs_prometheus_eio alcotest))
+ (libraries obs_prometheus_eio alcotest eio_main tls-eio x509)
+ (deps (source_tree tls_fixtures)))
