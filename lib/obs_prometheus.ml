@@ -146,47 +146,47 @@ let emit reg (e : Obs_eio.metric_event) =
 (* Makes a metric visible at scrape time (zero-valued if unlabeled) before
    its first emit; a labeled metric has no label combination to pre-seed,
    so only the family is created. *)
-let declare reg (d : Obs_eio.metric_decl) =
+let declare reg (d : Obs_eio.metric_declaration) =
   Mutex.lock reg.r_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->
-    match d.decl_kind with
+    match d.declaration_kind with
     | `Counter ->
       let fam =
-        get_or_create reg.r_families d.decl_name (fun () ->
-          FCounter { f_help = d.decl_help; f_series = Hashtbl.create 4 })
+        get_or_create reg.r_families d.declaration_name (fun () ->
+          FCounter { f_help = d.declaration_help; f_series = Hashtbl.create 4 })
       in
       (match fam with
        | FCounter { f_help; f_series } ->
-         warn_on_help_mismatch ~name:d.decl_name ~existing:f_help ~incoming:d.decl_help;
-         if d.decl_label_names = [] then
+         warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
+         if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { c_value = 0.0 }))
        | other ->
-         log_kind_conflict ~name:d.decl_name ~existing:(family_kind other) ~incoming:Counter)
+         log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Counter)
     | `Gauge ->
       let fam =
-        get_or_create reg.r_families d.decl_name (fun () ->
-          FGauge { f_help = d.decl_help; f_series = Hashtbl.create 4 })
+        get_or_create reg.r_families d.declaration_name (fun () ->
+          FGauge { f_help = d.declaration_help; f_series = Hashtbl.create 4 })
       in
       (match fam with
        | FGauge { f_help; f_series } ->
-         warn_on_help_mismatch ~name:d.decl_name ~existing:f_help ~incoming:d.decl_help;
-         if d.decl_label_names = [] then
+         warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
+         if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { g_value = 0.0 }))
        | other ->
-         log_kind_conflict ~name:d.decl_name ~existing:(family_kind other) ~incoming:Gauge)
+         log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Gauge)
     | `Histogram ->
       let fam =
-        get_or_create reg.r_families d.decl_name (fun () ->
+        get_or_create reg.r_families d.declaration_name (fun () ->
           FHistogram {
-            f_help   = d.decl_help;
+            f_help   = d.declaration_help;
             f_bounds = default_bounds;
             f_series = Hashtbl.create 4;
           })
       in
       (match fam with
        | FHistogram { f_help; f_bounds; f_series } ->
-         warn_on_help_mismatch ~name:d.decl_name ~existing:f_help ~incoming:d.decl_help;
-         if d.decl_label_names = [] then
+         warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
+         if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> {
              h_bounds = f_bounds;
              h_counts = Array.make (Array.length f_bounds + 1) 0;
@@ -194,7 +194,7 @@ let declare reg (d : Obs_eio.metric_decl) =
              h_count  = 0;
            }))
        | other ->
-         log_kind_conflict ~name:d.decl_name ~existing:(family_kind other) ~incoming:Histogram))
+         log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Histogram))
 
 (* ------------------------------------------------------------------ *)
 (* Renderer                                                            *)

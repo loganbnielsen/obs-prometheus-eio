@@ -23,8 +23,8 @@ let make_event ?(labels = []) ?(context = []) ~name ~help kind =
   { Obs_eio.name; help; kind; labels; context; service = "svc" }
 
 let make_decl ?(label_names = []) ~name ~help kind =
-  { Obs_eio.decl_name = name; decl_help = help; decl_kind = kind;
-    decl_label_names = label_names; decl_service = "svc" }
+  { Obs_eio.declaration_name = name; declaration_help = help; declaration_kind = kind;
+    declaration_label_names = label_names; declaration_service = "svc" }
 
 let capture_stderr f =
   let old_stderr = Unix.dup Unix.stderr in
