@@ -13,7 +13,7 @@ let sort_labels labels =
 type counter_state = { mutable c_value : float }
 type gauge_state   = { mutable g_value : float }
 
-type hist_state = {
+type histogram_state = {
   h_bounds : float array;
   mutable h_counts : int array;   (* length = Array.length h_bounds + 1; last slot = +Inf *)
   mutable h_sum    : float;
@@ -32,7 +32,7 @@ type family =
   | FHistogram of {
       f_help   : string;
       f_bounds : float array;
-      f_series : (label_key, hist_state) Hashtbl.t;
+      f_series : (label_key, histogram_state) Hashtbl.t;
     }
 
 type metric_kind =
