@@ -346,18 +346,18 @@ let test_concurrent_emit () =
    last PUT request it received in [last_req] so tests can inspect it. *)
 let with_mock_pushgateway env ~status_code f =
   Eio.Switch.run @@ fun sw ->
-  let last_method  = ref "" in
-  let last_path    = ref "" in
-  let last_ct      = ref "" in
-  let last_body    = ref "" in
+  let last_method       = ref "" in
+  let last_path         = ref "" in
+  let last_content_type = ref "" in
+  let last_body         = ref "" in
   let stop, stop_r = Eio.Promise.create () in
   let callback _conn req body =
-    last_method := Http.Method.to_string (Http.Request.meth req);
-    last_path   := Uri.path (Uri.of_string (Http.Request.resource req));
-    last_ct     := (match Http.Header.get (Http.Request.headers req) "content-type" with
-                    | Some v -> v | None -> "");
-    last_body   := (let buf = Eio.Buf_read.of_flow body ~max_size:(64 * 1024) in
-                    Eio.Buf_read.take_all buf);
+    last_method       := Http.Method.to_string (Http.Request.meth req);
+    last_path         := Uri.path (Uri.of_string (Http.Request.resource req));
+    last_content_type := (match Http.Header.get (Http.Request.headers req) "content-type" with
+                          | Some v -> v | None -> "");
+    last_body         := (let buf = Eio.Buf_read.of_flow body ~max_size:(64 * 1024) in
+                          Eio.Buf_read.take_all buf);
     Cohttp_eio.Server.respond
       ~status:(Http.Status.of_int status_code)
       ~body:(Cohttp_eio.Body.of_string "")
@@ -372,7 +372,7 @@ let with_mock_pushgateway env ~status_code f =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     Cohttp_eio.Server.run ~stop ~on_error:(fun _ -> ()) socket server;
     `Stop_daemon);
-  let result = f ~port ~last_method ~last_path ~last_ct ~last_body in
+  let result = f ~port ~last_method ~last_path ~last_content_type ~last_body in
   Eio.Promise.resolve stop_r ();
   result
 
@@ -391,7 +391,7 @@ let test_push_simple_job () =
   let (backend, render) = Obs_prometheus.create () in
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
-  with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method ~last_path ~last_ct ~last_body ->
+  with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method ~last_path ~last_content_type ~last_body ->
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"my-worker" render in
@@ -399,7 +399,7 @@ let test_push_simple_job () =
     Alcotest.(check string) "method is PUT"  "PUT"                !last_method;
     Alcotest.(check string) "path is correct" "/metrics/job/my-worker" !last_path;
     Alcotest.(check bool)   "content-type header"
-      true (contains !last_ct "text/plain");
+      true (contains !last_content_type "text/plain");
     Alcotest.(check bool)   "body non-empty" true (!last_body <> ""))
 
 let test_push_job_name_escaping () =
@@ -408,7 +408,7 @@ let test_push_job_name_escaping () =
   let (backend, render) = Obs_prometheus.create () in
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
-  with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method:_ ~last_path ~last_ct:_ ~last_body:_ ->
+  with_mock_pushgateway env ~status_code:200 (fun ~port ~last_method:_ ~last_path ~last_content_type:_ ~last_body:_ ->
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"my job/v2" render in
@@ -427,7 +427,7 @@ let test_push_explicit_port () =
   let (backend, render) = Obs_prometheus.create () in
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
-  with_mock_pushgateway env ~status_code:202 (fun ~port ~last_method ~last_path ~last_ct:_ ~last_body:_ ->
+  with_mock_pushgateway env ~status_code:202 (fun ~port ~last_method ~last_path ~last_content_type:_ ~last_body:_ ->
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"worker" render in
@@ -440,7 +440,7 @@ let test_push_non_2xx_response () =
   let (backend, render) = Obs_prometheus.create () in
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
-  with_mock_pushgateway env ~status_code:400 (fun ~port ~last_method:_ ~last_path:_ ~last_ct:_ ~last_body:_ ->
+  with_mock_pushgateway env ~status_code:400 (fun ~port ~last_method:_ ~last_path:_ ~last_content_type:_ ~last_body:_ ->
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"worker" render in
@@ -455,7 +455,7 @@ let test_push_500_response () =
   let (backend, render) = Obs_prometheus.create () in
   backend.Obs_eio.emit_metric
     (make_event ~name:"g" ~help:"h" (`Gauge 1.0));
-  with_mock_pushgateway env ~status_code:500 (fun ~port ~last_method:_ ~last_path:_ ~last_ct:_ ~last_body:_ ->
+  with_mock_pushgateway env ~status_code:500 (fun ~port ~last_method:_ ~last_path:_ ~last_content_type:_ ~last_body:_ ->
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"worker" render in
