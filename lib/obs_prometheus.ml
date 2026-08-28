@@ -57,10 +57,8 @@ let log_kind_conflict ~name ~existing ~incoming =
     (string_of_metric_kind existing)
     (string_of_metric_kind incoming)
 
-(* A metric name must map to exactly one help string; the first registration
-   wins the rendered # HELP line. This only catches a divergent help text,
-   not a divergent label-name set — Obs_eio.t has no cross-registration registry
-   of declared label names to check that against. *)
+(* First-registered help text wins the # HELP line; a divergent label-name
+   set isn't caught since Obs_eio.t keeps no registry to check it against. *)
 let warn_on_help_mismatch ~name ~existing ~incoming =
   if existing <> incoming then
     Printf.eprintf
@@ -145,11 +143,9 @@ let emit reg (e : Obs_eio.metric_event) =
        | other ->
          log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Histogram))
 
-(* Registered at [Obs_eio.register_*] time, before any observation — so a
-   metric is visible on the next scrape (at its zero value, for the
-   unlabeled case) rather than only after its first emit. For a labeled
-   metric there is no concrete label combination to pre-seed a sample for
-   yet, so only the family (and hence its # HELP/# TYPE lines) is created. *)
+(* Makes a metric visible at scrape time (zero-valued if unlabeled) before
+   its first emit; a labeled metric has no label combination to pre-seed,
+   so only the family is created. *)
 let declare reg (d : Obs_eio.metric_decl) =
   Mutex.lock reg.r_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->

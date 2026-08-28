@@ -341,9 +341,8 @@ let test_concurrent_emit () =
 (* Mock Pushgateway tests (no external infrastructure required)       *)
 (* ------------------------------------------------------------------ *)
 
-(* Spin up a minimal cohttp-eio server on an ephemeral port, run [f]
-   with the bound port number, then shut down.  The server records the
-   last PUT request it received in [last_req] so tests can inspect it. *)
+(* Minimal cohttp-eio server on an ephemeral port; records the last PUT
+   request so tests can inspect it. *)
 let with_mock_pushgateway env ~status_code f =
   Eio.Switch.run @@ fun sw ->
   let last_method  = ref "" in
@@ -377,11 +376,9 @@ let with_mock_pushgateway env ~status_code f =
   result
 
 let test_push_empty_renderer () =
-  (* push must return Ok () immediately without hitting the network when
-     the renderer produces no output. *)
+  (* Must return Ok () without hitting the network when render () = "". *)
   Eio_main.run @@ fun env ->
   let (_backend, render) = Obs_prometheus.create () in
-  (* No metrics emitted — render () = "" *)
   let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                  ~url:"http://localhost:9091" ~job:"test" render in
   Alcotest.(check (result unit string)) "empty renderer → Ok ()" (Ok ()) result
@@ -416,8 +413,7 @@ let test_push_job_name_escaping () =
     (* Space → %20, slash → %2F (or %2f) — neither must appear raw in the path *)
     Alcotest.(check bool) "space not raw in path"
       false (contains !last_path " ");
-    (* The path must start with /metrics/job/ and after that no literal '/'
-       from the job name should appear. *)
+    (* No literal '/' from the job name after the /metrics/job/ prefix. *)
     let suffix = String.sub !last_path 13 (String.length !last_path - 13) in
     Alcotest.(check bool) "slash after /metrics/job/ not raw"
       false (contains suffix "/"))
