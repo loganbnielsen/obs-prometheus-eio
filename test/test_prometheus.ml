@@ -416,6 +416,36 @@ let test_push_empty_renderer () =
                  ~url:"http://localhost:9091" ~job:"test" render in
   Alcotest.(check (result unit string)) "empty renderer → Ok ()" (Ok ()) result
 
+let test_push_propagates_cancelled () =
+  Eio_main.run @@ fun env ->
+  match
+    Obs_prometheus.push ~net:env#net ~clock:env#clock
+      ~url:"http://localhost:9091" ~job:"test"
+      (fun () -> raise (Eio.Cancel.Cancelled Exit))
+  with
+  | Ok () | Error _ -> Alcotest.fail "Cancelled should propagate"
+  | exception Eio.Cancel.Cancelled _ -> ()
+
+let test_push_rejects_invalid_timeout () =
+  Eio_main.run @@ fun env ->
+  let result =
+    Obs_prometheus.push ~net:env#net ~clock:env#clock
+      ~url:"http://localhost:9091" ~job:"test" ~timeout:0.
+      (fun () -> "metric 1\n")
+  in
+  Alcotest.(check bool) "invalid timeout returns Error" true
+    (match result with Error _ -> true | Ok () -> false)
+
+let test_push_rejects_invalid_url () =
+  Eio_main.run @@ fun env ->
+  let result =
+    Obs_prometheus.push ~net:env#net ~clock:env#clock
+      ~url:"unix:/tmp/pushgateway.sock" ~job:"test"
+      (fun () -> "metric 1\n")
+  in
+  Alcotest.(check bool) "invalid URL returns Error" true
+    (match result with Error _ -> true | Ok () -> false)
+
 let test_push_simple_job () =
   Eio_main.run @@ fun env ->
   let (backend, render) = Obs_prometheus.create () in
@@ -585,6 +615,9 @@ let () =
     ];
     "push", [
       test_case "empty renderer returns Ok immediately"       `Quick test_push_empty_renderer;
+      test_case "Cancelled propagates"                       `Quick test_push_propagates_cancelled;
+      test_case "invalid timeout returns Error"              `Quick test_push_rejects_invalid_timeout;
+      test_case "invalid URL returns Error"                  `Quick test_push_rejects_invalid_url;
       test_case "simple job name PUT to correct path"        `Quick test_push_simple_job;
       test_case "job name with special chars is pct-encoded" `Quick test_push_job_name_escaping;
       test_case "explicit port in URL is honoured"           `Quick test_push_explicit_port;
