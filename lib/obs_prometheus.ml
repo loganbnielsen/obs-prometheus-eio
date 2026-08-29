@@ -382,11 +382,24 @@ let render reg =
 (* Pushgateway HTTP client                                            *)
 (* ------------------------------------------------------------------ *)
 
+let validate_push_url url =
+  let uri = Uri.of_string url in
+  let scheme = Uri.scheme uri |> Option.map String.lowercase_ascii in
+  (match scheme with
+   | Some "http" | Some "https" -> ()
+   | _ -> invalid_arg "Obs_prometheus.push: url must use http:// or https://");
+  if Uri.host uri = None then
+    invalid_arg "Obs_prometheus.push: url must include a host";
+  uri
+
 let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
-  let body = renderer () in
-  if body = "" then Ok ()
-  else
-    let base = Uri.of_string url in
+  try
+    if timeout <= 0. || classify_float timeout = FP_nan then
+      invalid_arg "Obs_prometheus.push: timeout must be positive";
+    let base = validate_push_url url in
+    let body = renderer () in
+    if body = "" then Ok ()
+    else
     let encoded_job = Uri.pct_encode ~component:`Path job in
     let target = Uri.with_path base ("/metrics/job/" ^ encoded_job) in
     let headers =
@@ -397,24 +410,24 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
          ] @ headers)
     in
     let body_src = Cohttp_eio.Body.of_string body in
-    (try
-       Eio.Time.with_timeout_exn clock timeout (fun () ->
-         Eio.Switch.run (fun sw ->
-           match Https_eio.https_for_uri target with
-           | Error error ->
-             Error ("Pushgateway push: " ^ Https_eio.error_to_string error)
-           | Ok https ->
-             let client = Cohttp_eio.Client.make ~https net in
-             let (resp, _body) =
-               Cohttp_eio.Client.put client ~sw ~headers ~body:body_src target
-             in
-             let code = Http.Status.to_int (Http.Response.status resp) in
-             if code >= 200 && code < 300 then Ok ()
-             else Error (Printf.sprintf "Pushgateway returned HTTP %d" code)))
-     with
-     | Eio.Time.Timeout ->
-       Error (Printf.sprintf "Pushgateway push timed out after %gs" timeout)
-     | exn              -> Error ("Pushgateway push: " ^ Printexc.to_string exn))
+    Eio.Time.with_timeout_exn clock timeout (fun () ->
+      Eio.Switch.run (fun sw ->
+        match Https_eio.https_for_uri target with
+        | Error error ->
+          Error ("Pushgateway push: " ^ Https_eio.error_to_string error)
+        | Ok https ->
+          let client = Cohttp_eio.Client.make ~https net in
+          let (resp, _body) =
+            Cohttp_eio.Client.put client ~sw ~headers ~body:body_src target
+          in
+          let code = Http.Status.to_int (Http.Response.status resp) in
+          if code >= 200 && code < 300 then Ok ()
+          else Error (Printf.sprintf "Pushgateway returned HTTP %d" code)))
+  with
+  | Eio.Time.Timeout ->
+    Error (Printf.sprintf "Pushgateway push timed out after %gs" timeout)
+  | Eio.Cancel.Cancelled _ as exn -> raise exn
+  | exn              -> Error ("Pushgateway push: " ^ Printexc.to_string exn)
 
 (* ------------------------------------------------------------------ *)
 (* Public API                                                          *)

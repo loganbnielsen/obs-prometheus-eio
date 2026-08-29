@@ -31,11 +31,12 @@ val push
   :  net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
   -> ?timeout:float
-     (** Request timeout in seconds. Default: [5.0]. *)
+     (** Request timeout in seconds. Must be positive. Default: [5.0]. *)
   -> ?headers:(string * string) list
      (** Extra HTTP headers, e.g. auth/proxy headers. *)
   -> url:string
-     (** Pushgateway base URL, e.g. ["http://localhost:9091"] *)
+     (** Pushgateway base URL, e.g. ["http://localhost:9091"]. Must be an
+         [http://] or [https://] URL with a host. *)
   -> job:string
      (** Pushgateway job label, e.g. ["payments-worker"] *)
   -> (unit -> string)
@@ -44,6 +45,7 @@ val push
 (** Push the current metric snapshot to a Prometheus Pushgateway.
     Returns [Ok ()] immediately if the renderer produces no output (no metrics emitted yet).
     Otherwise performs one synchronous HTTP PUT on the calling fiber, bounded by
-    [timeout]. Returns [Error msg] for timeout, TLS setup failure, connection
-    failure, or non-2xx HTTP response. For long-running services use the renderer +
-    scrape endpoint instead. *)
+    [timeout]. Returns [Error msg] for invalid timeout/URL, timeout, TLS setup
+    failure, connection failure, or non-2xx HTTP response. [Eio.Cancel.Cancelled]
+    is always re-raised, never converted to [Error]. For long-running services use
+    the renderer + scrape endpoint instead. *)
