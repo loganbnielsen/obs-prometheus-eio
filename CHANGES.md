@@ -1,5 +1,11 @@
 # Changes
 
+## Unreleased
+
+- Enforce one label-name schema per Prometheus metric family. Later
+  declarations or emitted events with a different label set are logged and
+  dropped instead of producing inconsistent exposition output.
+
 ## 0.1.0
 
 - Initial standalone OPAM package: `obs-eio` Prometheus backend, text exposition
