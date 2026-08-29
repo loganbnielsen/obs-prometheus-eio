@@ -23,14 +23,17 @@ type histogram_state = {
 type family =
   | FCounter of {
       f_help   : string;
+      f_labels : string list;
       f_series : (label_key, counter_state) Hashtbl.t;
     }
   | FGauge of {
       f_help   : string;
+      f_labels : string list;
       f_series : (label_key, gauge_state) Hashtbl.t;
     }
   | FHistogram of {
       f_help   : string;
+      f_labels : string list;
       f_bounds : float array;
       f_series : (label_key, histogram_state) Hashtbl.t;
     }
@@ -58,13 +61,54 @@ let log_kind_conflict ~name ~existing ~incoming =
     (string_of_metric_kind incoming)
 
 (* First-registered help text wins the # HELP line; a divergent label-name
-   set isn't caught since Obs_eio.t keeps no registry to check it against. *)
+   set is dropped so a Prometheus metric family never changes shape. *)
 let warn_on_help_mismatch ~name ~existing ~incoming =
   if existing <> incoming then
     Printf.eprintf
       "obs-prometheus: metric %s registered with conflicting help text \
        (keeping %S, ignoring %S)\n%!"
       name existing incoming
+
+let label_names labels =
+  List.sort String.compare (List.map fst labels)
+
+let sort_label_names names =
+  List.sort String.compare names
+
+let duplicate_name names =
+  let rec loop = function
+    | a :: b :: _ when a = b -> Some a
+    | _ :: rest -> loop rest
+    | [] -> None
+  in
+  loop names
+
+let string_of_labels names =
+  "[" ^ String.concat "; " (List.map (Printf.sprintf "%S") names) ^ "]"
+
+let log_label_conflict ~name ~expected ~incoming =
+  Printf.eprintf
+    "obs-prometheus: metric %s label schema conflict: existing %s, incoming %s; dropping metric\n%!"
+    name
+    (string_of_labels expected)
+    (string_of_labels incoming)
+
+let labels_have_no_duplicates ~name labels =
+  match duplicate_name labels with
+  | Some label ->
+    Printf.eprintf
+      "obs-prometheus: metric %s has duplicate label %S; dropping metric\n%!"
+      name label;
+    false
+  | None -> true
+
+let labels_match_family ~name ~expected ~incoming =
+  if labels_have_no_duplicates ~name incoming then
+    if expected = incoming then true
+    else (
+      log_label_conflict ~name ~expected ~incoming;
+      false)
+  else false
 
 type registry = {
   r_families : (string, family) Hashtbl.t;
@@ -89,41 +133,51 @@ let emit reg (e : Obs_eio.metric_event) =
   Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->
     match e.kind with
     | `Counter delta ->
+      let labels = label_names e.labels in
+      if labels_have_no_duplicates ~name:e.name labels then
       let fam =
         get_or_create reg.r_families e.name (fun () ->
-          FCounter { f_help = e.help; f_series = Hashtbl.create 4 })
+          FCounter { f_help = e.help; f_labels = labels; f_series = Hashtbl.create 4 })
       in
       (match fam with
-       | FCounter { f_help; f_series } ->
+       | FCounter { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
-         let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
-         s.c_value <- s.c_value +. float_of_int delta
+         if labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels then (
+           let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
+           s.c_value <- s.c_value +. float_of_int delta)
        | other ->
          log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Counter)
     | `Gauge v ->
+      let labels = label_names e.labels in
+      if labels_have_no_duplicates ~name:e.name labels then
       let fam =
         get_or_create reg.r_families e.name (fun () ->
-          FGauge { f_help = e.help; f_series = Hashtbl.create 4 })
+          FGauge { f_help = e.help; f_labels = labels; f_series = Hashtbl.create 4 })
       in
       (match fam with
-       | FGauge { f_help; f_series } ->
+       | FGauge { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
-         let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
-         s.g_value <- v
+         if labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels then (
+           let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
+           s.g_value <- v)
        | other ->
          log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Gauge)
     | `Histogram obs ->
+      let labels = label_names e.labels in
+      if labels_have_no_duplicates ~name:e.name labels then
       let fam =
         get_or_create reg.r_families e.name (fun () ->
           FHistogram {
             f_help   = e.help;
+            f_labels = labels;
             f_bounds = default_bounds;
             f_series = Hashtbl.create 4;
           })
       in
       (match fam with
-       | FHistogram { f_help; f_bounds; f_series } ->
+       | FHistogram { f_help; f_labels; f_bounds; f_series } ->
          warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
+         if labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels then (
          let n_bounds = Array.length f_bounds in
          let s =
            get_or_create f_series key (fun () -> {
@@ -139,7 +193,7 @@ let emit reg (e : Obs_eio.metric_event) =
          ) f_bounds;
          s.h_counts.(n_bounds) <- s.h_counts.(n_bounds) + 1;  (* +Inf always *)
          s.h_sum   <- s.h_sum +. obs;
-         s.h_count <- s.h_count + 1
+         s.h_count <- s.h_count + 1)
        | other ->
          log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Histogram))
 
@@ -149,28 +203,31 @@ let emit reg (e : Obs_eio.metric_event) =
 let declare reg (d : Obs_eio.metric_declaration) =
   Mutex.lock reg.r_mutex;
   Fun.protect ~finally:(fun () -> Mutex.unlock reg.r_mutex) (fun () ->
+    let labels = sort_label_names d.declaration_label_names in
     match d.declaration_kind with
     | `Counter ->
       let fam =
         get_or_create reg.r_families d.declaration_name (fun () ->
-          FCounter { f_help = d.declaration_help; f_series = Hashtbl.create 4 })
+          FCounter { f_help = d.declaration_help; f_labels = labels; f_series = Hashtbl.create 4 })
       in
       (match fam with
-       | FCounter { f_help; f_series } ->
+       | FCounter { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
-         if d.declaration_label_names = [] then
+         if labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels
+            && d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { c_value = 0.0 }))
        | other ->
          log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Counter)
     | `Gauge ->
       let fam =
         get_or_create reg.r_families d.declaration_name (fun () ->
-          FGauge { f_help = d.declaration_help; f_series = Hashtbl.create 4 })
+          FGauge { f_help = d.declaration_help; f_labels = labels; f_series = Hashtbl.create 4 })
       in
       (match fam with
-       | FGauge { f_help; f_series } ->
+       | FGauge { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
-         if d.declaration_label_names = [] then
+         if labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels
+            && d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { g_value = 0.0 }))
        | other ->
          log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Gauge)
@@ -179,14 +236,16 @@ let declare reg (d : Obs_eio.metric_declaration) =
         get_or_create reg.r_families d.declaration_name (fun () ->
           FHistogram {
             f_help   = d.declaration_help;
+            f_labels = labels;
             f_bounds = default_bounds;
             f_series = Hashtbl.create 4;
           })
       in
       (match fam with
-       | FHistogram { f_help; f_bounds; f_series } ->
+       | FHistogram { f_help; f_labels; f_bounds; f_series } ->
          warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
-         if d.declaration_label_names = [] then
+         if labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels
+            && d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> {
              h_bounds = f_bounds;
              h_counts = Array.make (Array.length f_bounds + 1) 0;
@@ -211,17 +270,17 @@ let snapshot reg =
   let result =
     Hashtbl.fold (fun name fam acc ->
       let snap = match fam with
-        | FCounter { f_help; f_series } ->
+        | FCounter { f_help; f_series; _ } ->
           let series =
             Hashtbl.fold (fun k s acc -> (k, s.c_value) :: acc) f_series []
           in
           SCounter (f_help, series)
-        | FGauge { f_help; f_series } ->
+        | FGauge { f_help; f_series; _ } ->
           let series =
             Hashtbl.fold (fun k s acc -> (k, s.g_value) :: acc) f_series []
           in
           SGauge (f_help, series)
-        | FHistogram { f_help; f_bounds; f_series } ->
+        | FHistogram { f_help; f_bounds; f_series; _ } ->
           let series =
             Hashtbl.fold (fun k s acc ->
               (k, Array.copy s.h_counts, s.h_sum, s.h_count) :: acc

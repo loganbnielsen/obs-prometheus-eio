@@ -315,6 +315,39 @@ let test_kind_conflicts_for_each_registered_kind () =
     true (contains err
       "metric family kind conflict for histogram_first: existing histogram, incoming gauge")
 
+let test_label_schema_conflict_is_logged_and_dropped () =
+  let (out, err) =
+    capture_stderr (fun () ->
+      let (backend, render) = Obs_prometheus.create () in
+      backend.Obs_eio.declare_metric
+        (make_decl ~name:"reqs_total" ~help:"desc" ~label_names:["method"] `Counter);
+      backend.Obs_eio.emit_metric
+        (make_event ~name:"reqs_total" ~help:"desc" ~labels:[("method", "GET")] (`Counter 1));
+      backend.Obs_eio.emit_metric
+        (make_event ~name:"reqs_total" ~help:"desc"
+           ~labels:[("method", "POST"); ("status", "200")] (`Counter 1));
+      render ())
+  in
+  Alcotest.(check bool) "matching series remains"
+    true (has_line out {|reqs_total{method="GET"} 1|});
+  Alcotest.(check bool) "mismatched series was dropped"
+    false (has_line out {|reqs_total{method="POST",status="200"} 1|});
+  Alcotest.(check bool) "label conflict logged"
+    true (contains err "metric reqs_total label schema conflict")
+
+let test_duplicate_metric_labels_are_logged_and_dropped () =
+  let (out, err) =
+    capture_stderr (fun () ->
+      let (backend, render) = Obs_prometheus.create () in
+      backend.Obs_eio.emit_metric
+        (make_event ~name:"reqs_total" ~help:"desc"
+           ~labels:[("method", "GET"); ("method", "POST")] (`Counter 1));
+      render ())
+  in
+  Alcotest.(check string) "duplicate-label event creates no output" "" out;
+  Alcotest.(check bool) "duplicate label logged"
+    true (contains err {|metric reqs_total has duplicate label "method"|})
+
 (* ------------------------------------------------------------------ *)
 (* Concurrency                                                         *)
 (* ------------------------------------------------------------------ *)
@@ -544,6 +577,8 @@ let () =
       test_case "label values are escaped"              `Quick test_label_value_escaping;
       test_case "conflicting metric kinds are logged"   `Quick test_kind_conflicts_are_logged;
       test_case "each family kind rejects conflicts"    `Quick test_kind_conflicts_for_each_registered_kind;
+      test_case "label schema conflicts are logged"     `Quick test_label_schema_conflict_is_logged_and_dropped;
+      test_case "duplicate metric labels are logged"    `Quick test_duplicate_metric_labels_are_logged_and_dropped;
     ];
     "concurrency", [
       test_case "no lost updates under concurrent emit" `Quick test_concurrent_emit;
