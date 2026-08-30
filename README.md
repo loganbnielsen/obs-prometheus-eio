@@ -132,7 +132,7 @@ first observation names one.
   subsequent events only update the value map. A later event with a different `help`
   string for the same `name` is logged to stderr and ignored — the first `help` wins.
   A metric-kind conflict (e.g. a `counter` registered where a `gauge` already exists
-  under that `name`) is logged and the conflicting event is dropped entirely.
+  under that `name`) raises `Invalid_argument`.
 - **HELP text:** backslash and newline are escaped in the rendered `# HELP` line
   (label values additionally escape `"`, since label values are quoted and HELP text
   is not).

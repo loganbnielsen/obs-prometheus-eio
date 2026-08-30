@@ -3,8 +3,8 @@
 ## Unreleased
 
 - Enforce one label-name schema per Prometheus metric family. Later
-  declarations or emitted events with a different label set are logged and
-  dropped instead of producing inconsistent exposition output.
+  declarations or emitted events with a different label set raise
+  `Invalid_argument` instead of producing inconsistent exposition output.
 - `push` now re-raises `Eio.Cancel.Cancelled` instead of converting cancellation
   into an ordinary Pushgateway error.
 - `push` now rejects non-positive timeouts and non-HTTP(S), hostless
