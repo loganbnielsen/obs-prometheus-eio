@@ -152,7 +152,7 @@ first observation names one.
 ```ocaml
 let (prom_backend, render) = Obs_prometheus.create () in
 let ot = Obs_eio.create ~service:"payments-worker"
-           ~mono_clock:env#mono_clock ~backend:prom_backend in
+           ~mono_clock:env#mono_clock ~backend:prom_backend () in
 
 let msgs_processed = Obs_eio.register_counter ot
   ~name:"kafka_messages_processed_total"
@@ -177,7 +177,7 @@ To expose both metrics and tracing/logging from one `Obs_eio.t`, compose this ba
 
 ```ocaml
 let backend = Obs_eio.compose prom_backend loki_backend in
-let ot = Obs_eio.create ~service:"payments-worker" ~mono_clock:env#mono_clock ~backend in
+let ot = Obs_eio.create ~service:"payments-worker" ~mono_clock:env#mono_clock ~backend () in
 ```
 
 ## Local Development
