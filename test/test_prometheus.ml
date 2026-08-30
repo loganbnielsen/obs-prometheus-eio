@@ -136,17 +136,13 @@ let test_declare_then_emit_reuses_declared_family () =
   Alcotest.(check bool) "declared-then-emitted counter shows the emitted value"
     true (has_line out "reqs_total 5")
 
-let test_declare_kind_conflict_is_logged () =
-  let (_out, err) =
-    capture_stderr (fun () ->
-      let (backend, render) = Obs_prometheus.create () in
-      backend.Obs_eio.emit_metric (make_event ~name:"m" ~help:"desc" (`Counter 1));
-      backend.Obs_eio.declare_metric (make_decl ~name:"m" ~help:"desc" `Gauge);
-      render ())
-  in
-  Alcotest.(check bool) "kind conflict from declare_metric logged"
-    true (contains err
-      "metric family kind conflict for m: existing counter, incoming gauge")
+let test_declare_kind_conflict_raises () =
+  let (backend, _render) = Obs_prometheus.create () in
+  backend.Obs_eio.emit_metric (make_event ~name:"m" ~help:"desc" (`Counter 1));
+  Alcotest.check_raises "kind conflict from declare_metric raises Invalid_argument"
+    (Invalid_argument
+       "obs-prometheus: metric family kind conflict for m: existing counter, incoming gauge")
+    (fun () -> backend.Obs_eio.declare_metric (make_decl ~name:"m" ~help:"desc" `Gauge))
 
 (* ------------------------------------------------------------------ *)
 (* Gauge                                                               *)
@@ -266,87 +262,81 @@ let test_help_mismatch_is_logged () =
     true (contains err
       "metric m registered with conflicting help text (keeping \"first help\", ignoring \"second help\")")
 
-let test_kind_conflicts_are_logged () =
-  let (out, err) =
-    capture_stderr (fun () ->
-      let (backend, render) = Obs_prometheus.create () in
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"same_metric" ~help:"counter" (`Counter 1));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"same_metric" ~help:"gauge" (`Gauge 2.0));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"same_metric" ~help:"histogram" (`Histogram 0.5));
-      render ())
-  in
+let test_kind_conflicts_raise () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs_eio.emit_metric
+    (make_event ~name:"same_metric" ~help:"counter" (`Counter 1));
+  Alcotest.check_raises "gauge conflict raises Invalid_argument"
+    (Invalid_argument
+       "obs-prometheus: metric family kind conflict for same_metric: existing counter, incoming gauge")
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"same_metric" ~help:"gauge" (`Gauge 2.0)));
+  Alcotest.check_raises "histogram conflict raises Invalid_argument"
+    (Invalid_argument
+       "obs-prometheus: metric family kind conflict for same_metric: existing counter, incoming histogram")
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"same_metric" ~help:"histogram" (`Histogram 0.5)));
+  let out = render () in
   Alcotest.(check bool) "original counter family remains"
-    true (has_line out "# TYPE same_metric counter");
-  Alcotest.(check bool) "gauge conflict logged"
-    true (contains err
-      "metric family kind conflict for same_metric: existing counter, incoming gauge");
-  Alcotest.(check bool) "histogram conflict logged"
-    true (contains err
-      "metric family kind conflict for same_metric: existing counter, incoming histogram")
+    true (has_line out "# TYPE same_metric counter")
 
 let test_kind_conflicts_for_each_registered_kind () =
-  let (_out, err) =
-    capture_stderr (fun () ->
-      let (backend, render) = Obs_prometheus.create () in
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"counter_first" ~help:"counter" (`Counter 1));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"counter_first" ~help:"histogram" (`Histogram 0.5));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"gauge_first" ~help:"gauge" (`Gauge 2.0));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"gauge_first" ~help:"counter" (`Counter 1));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"histogram_first" ~help:"histogram" (`Histogram 0.5));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"histogram_first" ~help:"gauge" (`Gauge 2.0));
-      render ())
-  in
-  Alcotest.(check bool) "counter rejects histogram"
-    true (contains err
-      "metric family kind conflict for counter_first: existing counter, incoming histogram");
-  Alcotest.(check bool) "gauge rejects counter"
-    true (contains err
-      "metric family kind conflict for gauge_first: existing gauge, incoming counter");
-  Alcotest.(check bool) "histogram rejects gauge"
-    true (contains err
-      "metric family kind conflict for histogram_first: existing histogram, incoming gauge")
+  let (backend, _render) = Obs_prometheus.create () in
+  backend.Obs_eio.emit_metric
+    (make_event ~name:"counter_first" ~help:"counter" (`Counter 1));
+  Alcotest.check_raises "counter rejects histogram"
+    (Invalid_argument
+       "obs-prometheus: metric family kind conflict for counter_first: existing counter, incoming histogram")
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"counter_first" ~help:"histogram" (`Histogram 0.5)));
+  backend.Obs_eio.emit_metric
+    (make_event ~name:"gauge_first" ~help:"gauge" (`Gauge 2.0));
+  Alcotest.check_raises "gauge rejects counter"
+    (Invalid_argument
+       "obs-prometheus: metric family kind conflict for gauge_first: existing gauge, incoming counter")
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"gauge_first" ~help:"counter" (`Counter 1)));
+  backend.Obs_eio.emit_metric
+    (make_event ~name:"histogram_first" ~help:"histogram" (`Histogram 0.5));
+  Alcotest.check_raises "histogram rejects gauge"
+    (Invalid_argument
+       "obs-prometheus: metric family kind conflict for histogram_first: existing histogram, incoming gauge")
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"histogram_first" ~help:"gauge" (`Gauge 2.0)))
 
-let test_label_schema_conflict_is_logged_and_dropped () =
-  let (out, err) =
-    capture_stderr (fun () ->
-      let (backend, render) = Obs_prometheus.create () in
-      backend.Obs_eio.declare_metric
-        (make_decl ~name:"reqs_total" ~help:"desc" ~label_names:["method"] `Counter);
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"reqs_total" ~help:"desc" ~labels:[("method", "GET")] (`Counter 1));
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"reqs_total" ~help:"desc"
-           ~labels:[("method", "POST"); ("status", "200")] (`Counter 1));
-      render ())
-  in
+let test_label_schema_conflict_raises () =
+  let (backend, render) = Obs_prometheus.create () in
+  backend.Obs_eio.declare_metric
+    (make_decl ~name:"reqs_total" ~help:"desc" ~label_names:["method"] `Counter);
+  backend.Obs_eio.emit_metric
+    (make_event ~name:"reqs_total" ~help:"desc" ~labels:[("method", "GET")] (`Counter 1));
+  Alcotest.check_raises "label conflict raises Invalid_argument"
+    (Invalid_argument
+       {|obs-prometheus: metric reqs_total label schema conflict: existing ["method"], incoming ["method"; "status"]|})
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"reqs_total" ~help:"desc"
+            ~labels:[("method", "POST"); ("status", "200")] (`Counter 1)));
+  let out = render () in
   Alcotest.(check bool) "matching series remains"
     true (has_line out {|reqs_total{method="GET"} 1|});
-  Alcotest.(check bool) "mismatched series was dropped"
-    false (has_line out {|reqs_total{method="POST",status="200"} 1|});
-  Alcotest.(check bool) "label conflict logged"
-    true (contains err "metric reqs_total label schema conflict")
+  Alcotest.(check bool) "mismatched series was never written"
+    false (has_line out {|reqs_total{method="POST",status="200"} 1|})
 
-let test_duplicate_metric_labels_are_logged_and_dropped () =
-  let (out, err) =
-    capture_stderr (fun () ->
-      let (backend, render) = Obs_prometheus.create () in
-      backend.Obs_eio.emit_metric
-        (make_event ~name:"reqs_total" ~help:"desc"
-           ~labels:[("method", "GET"); ("method", "POST")] (`Counter 1));
-      render ())
-  in
-  Alcotest.(check string) "duplicate-label event creates no output" "" out;
-  Alcotest.(check bool) "duplicate label logged"
-    true (contains err {|metric reqs_total has duplicate label "method"|})
+let test_duplicate_metric_labels_raise () =
+  let (backend, render) = Obs_prometheus.create () in
+  Alcotest.check_raises "duplicate label raises Invalid_argument"
+    (Invalid_argument {|obs-prometheus: metric reqs_total has duplicate label "method"|})
+    (fun () ->
+       backend.Obs_eio.emit_metric
+         (make_event ~name:"reqs_total" ~help:"desc"
+            ~labels:[("method", "GET"); ("method", "POST")] (`Counter 1)));
+  Alcotest.(check string) "rejected event creates no output" "" (render ())
 
 (* ------------------------------------------------------------------ *)
 (* Concurrency                                                         *)
@@ -597,7 +587,7 @@ let () =
       test_case "unlabeled histogram visible at zero"   `Quick test_declare_unlabeled_histogram_visible_at_zero;
       test_case "labeled metric only creates the family" `Quick test_declare_labeled_metric_creates_family_only;
       test_case "declare then emit reuses the family"    `Quick test_declare_then_emit_reuses_declared_family;
-      test_case "kind conflict from declare is logged"   `Quick test_declare_kind_conflict_is_logged;
+      test_case "kind conflict from declare raises"      `Quick test_declare_kind_conflict_raises;
     ];
     "renderer", [
       test_case "empty string when no events"           `Quick test_renderer_empty_when_no_events;
@@ -605,10 +595,10 @@ let () =
       test_case "HELP text escapes backslash and newline" `Quick test_help_text_escaping;
       test_case "conflicting HELP text is logged"          `Quick test_help_mismatch_is_logged;
       test_case "label values are escaped"              `Quick test_label_value_escaping;
-      test_case "conflicting metric kinds are logged"   `Quick test_kind_conflicts_are_logged;
+      test_case "conflicting metric kinds raise"         `Quick test_kind_conflicts_raise;
       test_case "each family kind rejects conflicts"    `Quick test_kind_conflicts_for_each_registered_kind;
-      test_case "label schema conflicts are logged"     `Quick test_label_schema_conflict_is_logged_and_dropped;
-      test_case "duplicate metric labels are logged"    `Quick test_duplicate_metric_labels_are_logged_and_dropped;
+      test_case "label schema conflicts raise"           `Quick test_label_schema_conflict_raises;
+      test_case "duplicate metric labels raise"          `Quick test_duplicate_metric_labels_raise;
     ];
     "concurrency", [
       test_case "no lost updates under concurrent emit" `Quick test_concurrent_emit;
