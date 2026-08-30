@@ -25,7 +25,14 @@ val create : unit -> Obs_eio.backend * (unit -> string)
 (** [create ()] returns a backend and a renderer.
     Pass the backend to [Obs_eio.create ~backend].
     Call the renderer to produce a Prometheus /metrics text body on demand.
-    The backend is safe to call from multiple fibers and domains simultaneously. *)
+    The backend is safe to call from multiple fibers and domains simultaneously.
+    [emit_metric]/[declare_metric] raise [Invalid_argument] if a metric name is
+    re-registered with a different kind, a different label-name set, or a
+    request carries a duplicate label — each is a caller bug, not a runtime
+    condition to silently drop. [Obs_eio] routes that exception to
+    [on_backend_error] rather than letting it reach application code. A
+    conflicting HELP string is not one of these: the first-registered text
+    wins and later ones are ignored. *)
 
 val push
   :  net:_ Eio.Net.t

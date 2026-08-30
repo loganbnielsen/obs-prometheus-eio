@@ -53,15 +53,21 @@ let family_kind = function
   | FGauge _ -> Gauge
   | FHistogram _ -> Histogram
 
-let log_kind_conflict ~name ~existing ~incoming =
-  Printf.eprintf
-    "obs-prometheus: metric family kind conflict for %s: existing %s, incoming %s; dropping metric\n%!"
-    name
-    (string_of_metric_kind existing)
-    (string_of_metric_kind incoming)
+(* A metric-shape conflict (kind, label schema, duplicate label) is a
+   programmer error at the emit/declare call site — the same class of
+   mistake obs-eio itself rejects with Invalid_argument at registration
+   time. Raising here (rather than logging-and-dropping) routes it through
+   Obs_eio's on_backend_error handler instead of a stderr line nobody
+   reads; ordinary application code calling with_span/register_* never
+   sees the exception directly. *)
+let kind_conflict_error ~name ~existing ~incoming =
+  Invalid_argument
+    (Printf.sprintf
+       "obs-prometheus: metric family kind conflict for %s: existing %s, incoming %s"
+       name (string_of_metric_kind existing) (string_of_metric_kind incoming))
 
-(* First-registered help text wins the # HELP line; a divergent label-name
-   set is dropped so a Prometheus metric family never changes shape. *)
+(* First-registered help text wins the # HELP line; unlike a kind or label
+   conflict this can't corrupt a family's shape, so it stays a warning. *)
 let warn_on_help_mismatch ~name ~existing ~incoming =
   if existing <> incoming then
     Printf.eprintf
@@ -86,29 +92,23 @@ let duplicate_name names =
 let string_of_labels names =
   "[" ^ String.concat "; " (List.map (Printf.sprintf "%S") names) ^ "]"
 
-let log_label_conflict ~name ~expected ~incoming =
-  Printf.eprintf
-    "obs-prometheus: metric %s label schema conflict: existing %s, incoming %s; dropping metric\n%!"
-    name
-    (string_of_labels expected)
-    (string_of_labels incoming)
+let label_conflict_error ~name ~expected ~incoming =
+  Invalid_argument
+    (Printf.sprintf
+       "obs-prometheus: metric %s label schema conflict: existing %s, incoming %s"
+       name (string_of_labels expected) (string_of_labels incoming))
 
-let labels_have_no_duplicates ~name labels =
+let check_no_duplicate_labels ~name labels =
   match duplicate_name labels with
   | Some label ->
-    Printf.eprintf
-      "obs-prometheus: metric %s has duplicate label %S; dropping metric\n%!"
-      name label;
-    false
-  | None -> true
+    raise
+      (Invalid_argument
+         (Printf.sprintf "obs-prometheus: metric %s has duplicate label %S" name label))
+  | None -> ()
 
-let labels_match_family ~name ~expected ~incoming =
-  if labels_have_no_duplicates ~name incoming then
-    if expected = incoming then true
-    else (
-      log_label_conflict ~name ~expected ~incoming;
-      false)
-  else false
+let check_labels_match_family ~name ~expected ~incoming =
+  check_no_duplicate_labels ~name incoming;
+  if expected <> incoming then raise (label_conflict_error ~name ~expected ~incoming)
 
 type registry = {
   r_families : (string, family) Hashtbl.t;
@@ -134,7 +134,7 @@ let emit reg (e : Obs_eio.metric_event) =
     match e.kind with
     | `Counter delta ->
       let labels = label_names e.labels in
-      if labels_have_no_duplicates ~name:e.name labels then
+      check_no_duplicate_labels ~name:e.name labels;
       let fam =
         get_or_create reg.r_families e.name (fun () ->
           FCounter { f_help = e.help; f_labels = labels; f_series = Hashtbl.create 4 })
@@ -142,14 +142,14 @@ let emit reg (e : Obs_eio.metric_event) =
       (match fam with
        | FCounter { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
-         if labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels then (
-           let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
-           s.c_value <- s.c_value +. float_of_int delta)
+         check_labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels;
+         let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
+         s.c_value <- s.c_value +. float_of_int delta
        | other ->
-         log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Counter)
+         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:Counter))
     | `Gauge v ->
       let labels = label_names e.labels in
-      if labels_have_no_duplicates ~name:e.name labels then
+      check_no_duplicate_labels ~name:e.name labels;
       let fam =
         get_or_create reg.r_families e.name (fun () ->
           FGauge { f_help = e.help; f_labels = labels; f_series = Hashtbl.create 4 })
@@ -157,14 +157,14 @@ let emit reg (e : Obs_eio.metric_event) =
       (match fam with
        | FGauge { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
-         if labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels then (
-           let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
-           s.g_value <- v)
+         check_labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels;
+         let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
+         s.g_value <- v
        | other ->
-         log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Gauge)
+         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:Gauge))
     | `Histogram obs ->
       let labels = label_names e.labels in
-      if labels_have_no_duplicates ~name:e.name labels then
+      check_no_duplicate_labels ~name:e.name labels;
       let fam =
         get_or_create reg.r_families e.name (fun () ->
           FHistogram {
@@ -177,7 +177,7 @@ let emit reg (e : Obs_eio.metric_event) =
       (match fam with
        | FHistogram { f_help; f_labels; f_bounds; f_series } ->
          warn_on_help_mismatch ~name:e.name ~existing:f_help ~incoming:e.help;
-         if labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels then (
+         check_labels_match_family ~name:e.name ~expected:f_labels ~incoming:labels;
          let n_bounds = Array.length f_bounds in
          let s =
            get_or_create f_series key (fun () -> {
@@ -193,9 +193,9 @@ let emit reg (e : Obs_eio.metric_event) =
          ) f_bounds;
          s.h_counts.(n_bounds) <- s.h_counts.(n_bounds) + 1;  (* +Inf always *)
          s.h_sum   <- s.h_sum +. obs;
-         s.h_count <- s.h_count + 1)
+         s.h_count <- s.h_count + 1
        | other ->
-         log_kind_conflict ~name:e.name ~existing:(family_kind other) ~incoming:Histogram))
+         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:Histogram)))
 
 (* Makes a metric visible at scrape time (zero-valued if unlabeled) before
    its first emit; a labeled metric has no label combination to pre-seed,
@@ -213,11 +213,11 @@ let declare reg (d : Obs_eio.metric_declaration) =
       (match fam with
        | FCounter { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
-         if labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels
-            && d.declaration_label_names = [] then
+         check_labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels;
+         if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { c_value = 0.0 }))
        | other ->
-         log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Counter)
+         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Counter))
     | `Gauge ->
       let fam =
         get_or_create reg.r_families d.declaration_name (fun () ->
@@ -226,11 +226,11 @@ let declare reg (d : Obs_eio.metric_declaration) =
       (match fam with
        | FGauge { f_help; f_labels; f_series } ->
          warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
-         if labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels
-            && d.declaration_label_names = [] then
+         check_labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels;
+         if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { g_value = 0.0 }))
        | other ->
-         log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Gauge)
+         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Gauge))
     | `Histogram ->
       let fam =
         get_or_create reg.r_families d.declaration_name (fun () ->
@@ -244,8 +244,8 @@ let declare reg (d : Obs_eio.metric_declaration) =
       (match fam with
        | FHistogram { f_help; f_labels; f_bounds; f_series } ->
          warn_on_help_mismatch ~name:d.declaration_name ~existing:f_help ~incoming:d.declaration_help;
-         if labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels
-            && d.declaration_label_names = [] then
+         check_labels_match_family ~name:d.declaration_name ~expected:f_labels ~incoming:labels;
+         if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> {
              h_bounds = f_bounds;
              h_counts = Array.make (Array.length f_bounds + 1) 0;
@@ -253,7 +253,7 @@ let declare reg (d : Obs_eio.metric_declaration) =
              h_count  = 0;
            }))
        | other ->
-         log_kind_conflict ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Histogram))
+         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Histogram)))
 
 (* ------------------------------------------------------------------ *)
 (* Renderer                                                            *)
