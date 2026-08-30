@@ -416,6 +416,16 @@ let test_push_propagates_cancelled () =
   | Ok () | Error _ -> Alcotest.fail "Cancelled should propagate"
   | exception Eio.Cancel.Cancelled _ -> ()
 
+let test_push_propagates_fatal () =
+  Eio_main.run @@ fun env ->
+  match
+    Obs_prometheus.push ~net:env#net ~clock:env#clock
+      ~url:"http://localhost:9091" ~job:"test"
+      (fun () -> raise Stack_overflow)
+  with
+  | Ok () | Error _ -> Alcotest.fail "Stack_overflow should propagate"
+  | exception Stack_overflow -> ()
+
 let test_push_rejects_invalid_timeout () =
   Eio_main.run @@ fun env ->
   let result =
@@ -606,6 +616,7 @@ let () =
     "push", [
       test_case "empty renderer returns Ok immediately"       `Quick test_push_empty_renderer;
       test_case "Cancelled propagates"                       `Quick test_push_propagates_cancelled;
+      test_case "fatal exceptions propagate"                 `Quick test_push_propagates_fatal;
       test_case "invalid timeout returns Error"              `Quick test_push_rejects_invalid_timeout;
       test_case "invalid URL returns Error"                  `Quick test_push_rejects_invalid_url;
       test_case "simple job name PUT to correct path"        `Quick test_push_simple_job;

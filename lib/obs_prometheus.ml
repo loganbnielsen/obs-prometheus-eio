@@ -422,6 +422,7 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
   | Eio.Time.Timeout ->
     Error (Printf.sprintf "Pushgateway push timed out after %gs" timeout)
   | Eio.Cancel.Cancelled _ as exn -> raise exn
+  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
   | exn              -> Error ("Pushgateway push: " ^ Printexc.to_string exn)
 
 (* ------------------------------------------------------------------ *)
