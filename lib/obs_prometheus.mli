@@ -6,7 +6,7 @@
     {[
       let (prom_backend, render) = Obs_prometheus.create () in
       let ot = Obs_eio.create ~service:"payments-worker"
-                 ~mono_clock:env#mono_clock ~backend:prom_backend in
+                 ~mono_clock:env#mono_clock ~backend:prom_backend () in
 
       let msgs = Obs_eio.register_counter ot
         ~name:"kafka_messages_processed_total"

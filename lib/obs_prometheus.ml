@@ -38,20 +38,15 @@ type family =
       f_series : (label_key, histogram_state) Hashtbl.t;
     }
 
-type metric_kind =
-  | Counter
-  | Gauge
-  | Histogram
-
 let string_of_metric_kind = function
-  | Counter -> "counter"
-  | Gauge -> "gauge"
-  | Histogram -> "histogram"
+  | `Counter -> "counter"
+  | `Gauge -> "gauge"
+  | `Histogram -> "histogram"
 
 let family_kind = function
-  | FCounter _ -> Counter
-  | FGauge _ -> Gauge
-  | FHistogram _ -> Histogram
+  | FCounter _ -> `Counter
+  | FGauge _ -> `Gauge
+  | FHistogram _ -> `Histogram
 
 (* A metric-shape conflict (kind, label schema, duplicate label) is a
    programmer error at the emit/declare call site — the same class of
@@ -146,7 +141,7 @@ let emit reg (e : Obs_eio.metric_event) =
          let s = get_or_create f_series key (fun () -> { c_value = 0.0 }) in
          s.c_value <- s.c_value +. float_of_int delta
        | other ->
-         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:Counter))
+         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:`Counter))
     | `Gauge v ->
       let labels = label_names e.labels in
       check_no_duplicate_labels ~name:e.name labels;
@@ -161,7 +156,7 @@ let emit reg (e : Obs_eio.metric_event) =
          let s = get_or_create f_series key (fun () -> { g_value = 0.0 }) in
          s.g_value <- v
        | other ->
-         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:Gauge))
+         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:`Gauge))
     | `Histogram obs ->
       let labels = label_names e.labels in
       check_no_duplicate_labels ~name:e.name labels;
@@ -195,7 +190,7 @@ let emit reg (e : Obs_eio.metric_event) =
          s.h_sum   <- s.h_sum +. obs;
          s.h_count <- s.h_count + 1
        | other ->
-         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:Histogram)))
+         raise (kind_conflict_error ~name:e.name ~existing:(family_kind other) ~incoming:`Histogram)))
 
 (* Makes a metric visible at scrape time (zero-valued if unlabeled) before
    its first emit; a labeled metric has no label combination to pre-seed,
@@ -217,7 +212,7 @@ let declare reg (d : Obs_eio.metric_declaration) =
          if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { c_value = 0.0 }))
        | other ->
-         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Counter))
+         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:`Counter))
     | `Gauge ->
       let fam =
         get_or_create reg.r_families d.declaration_name (fun () ->
@@ -230,7 +225,7 @@ let declare reg (d : Obs_eio.metric_declaration) =
          if d.declaration_label_names = [] then
            ignore (get_or_create f_series [] (fun () -> { g_value = 0.0 }))
        | other ->
-         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Gauge))
+         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:`Gauge))
     | `Histogram ->
       let fam =
         get_or_create reg.r_families d.declaration_name (fun () ->
@@ -253,7 +248,7 @@ let declare reg (d : Obs_eio.metric_declaration) =
              h_count  = 0;
            }))
        | other ->
-         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:Histogram)))
+         raise (kind_conflict_error ~name:d.declaration_name ~existing:(family_kind other) ~incoming:`Histogram)))
 
 (* ------------------------------------------------------------------ *)
 (* Renderer                                                            *)
