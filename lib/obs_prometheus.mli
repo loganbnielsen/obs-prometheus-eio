@@ -39,6 +39,7 @@ type push_error =
   | Tls_setup of string       (** TLS setup failed for an [https://] URL. *)
   | Timeout of float          (** The push did not complete within this many seconds. *)
   | Http_error of int         (** Pushgateway responded with this non-2xx status. *)
+  | Response_too_large of int (** Pushgateway's response exceeded this many bytes. *)
   | Network_error of string   (** Connection failure, or any other transport-level exception. *)
 
 val push_error_to_string : push_error -> string
