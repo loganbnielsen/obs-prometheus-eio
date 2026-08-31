@@ -377,16 +377,6 @@ let render reg =
 (* Pushgateway HTTP client                                            *)
 (* ------------------------------------------------------------------ *)
 
-let validate_push_url url =
-  let uri = Uri.of_string url in
-  let scheme = Uri.scheme uri |> Option.map String.lowercase_ascii in
-  (match scheme with
-   | Some "http" | Some "https" -> ()
-   | _ -> invalid_arg "Obs_prometheus.push: url must use http:// or https://");
-  if Uri.host uri = None then
-    invalid_arg "Obs_prometheus.push: url must include a host";
-  uri
-
 type push_error =
   | Invalid_config of string
   | Tls_setup of string
@@ -402,41 +392,19 @@ let push_error_to_string = function
   | Network_error msg -> "Pushgateway push: " ^ msg
 
 let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
-  try
-    if timeout <= 0. || classify_float timeout = FP_nan then
-      invalid_arg "Obs_prometheus.push: timeout must be positive";
-    let base = validate_push_url url in
-    let body = renderer () in
-    if body = "" then Ok ()
-    else
+  let body = renderer () in
+  if body = "" then Ok ()
+  else
     let encoded_job = Uri.pct_encode ~component:`Path job in
-    let target = Uri.with_path base ("/metrics/job/" ^ encoded_job) in
-    let headers =
-      Http.Header.of_list
-        ([ ("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-         ; ("Content-Length", string_of_int (String.length body))
-         ; ("Connection", "close")
-         ] @ headers)
-    in
-    let body_src = Cohttp_eio.Body.of_string body in
-    Eio.Time.with_timeout_exn clock timeout (fun () ->
-      Eio.Switch.run (fun sw ->
-        match Https_eio.https_for_uri target with
-        | Error error -> Error (Tls_setup (Https_eio.error_to_string error))
-        | Ok https ->
-          let client = Cohttp_eio.Client.make ~https net in
-          let (resp, _body) =
-            Cohttp_eio.Client.put client ~sw ~headers ~body:body_src target
-          in
-          let code = Http.Status.to_int (Http.Response.status resp) in
-          if code >= 200 && code < 300 then Ok ()
-          else Error (Http_error code)))
-  with
-  | Eio.Time.Timeout -> Error (Timeout timeout)
-  | Eio.Cancel.Cancelled _ as exn -> raise exn
-  | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-  | Invalid_argument msg -> Error (Invalid_config msg)
-  | exn -> Error (Network_error (Printexc.to_string exn))
+    let target = Uri.with_path (Uri.of_string url) ("/metrics/job/" ^ encoded_job) |> Uri.to_string in
+    let headers = ("Content-Type", "text/plain; version=0.0.4; charset=utf-8") :: headers in
+    match Https_eio.request ~net ~clock ~timeout ~meth:`PUT ~url:target ~headers ~body () with
+    | Ok (code, _) when code >= 200 && code < 300 -> Ok ()
+    | Ok (code, _) -> Error (Http_error code)
+    | Error (Https_eio.Invalid_config msg) -> Error (Invalid_config msg)
+    | Error (Https_eio.Tls_setup msg) -> Error (Tls_setup msg)
+    | Error (Https_eio.Timeout t) -> Error (Timeout t)
+    | Error (Https_eio.Network_error msg) -> Error (Network_error msg)
 
 (* ------------------------------------------------------------------ *)
 (* Public API                                                          *)
