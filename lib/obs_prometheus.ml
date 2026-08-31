@@ -387,6 +387,20 @@ let validate_push_url url =
     invalid_arg "Obs_prometheus.push: url must include a host";
   uri
 
+type push_error =
+  | Invalid_config of string
+  | Tls_setup of string
+  | Timeout of float
+  | Http_error of int
+  | Network_error of string
+
+let push_error_to_string = function
+  | Invalid_config msg -> msg
+  | Tls_setup msg -> "Pushgateway push: " ^ msg
+  | Timeout t -> Printf.sprintf "Pushgateway push timed out after %gs" t
+  | Http_error code -> Printf.sprintf "Pushgateway returned HTTP %d" code
+  | Network_error msg -> "Pushgateway push: " ^ msg
+
 let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
   try
     if timeout <= 0. || classify_float timeout = FP_nan then
@@ -408,8 +422,7 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
     Eio.Time.with_timeout_exn clock timeout (fun () ->
       Eio.Switch.run (fun sw ->
         match Https_eio.https_for_uri target with
-        | Error error ->
-          Error ("Pushgateway push: " ^ Https_eio.error_to_string error)
+        | Error error -> Error (Tls_setup (Https_eio.error_to_string error))
         | Ok https ->
           let client = Cohttp_eio.Client.make ~https net in
           let (resp, _body) =
@@ -417,13 +430,13 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
           in
           let code = Http.Status.to_int (Http.Response.status resp) in
           if code >= 200 && code < 300 then Ok ()
-          else Error (Printf.sprintf "Pushgateway returned HTTP %d" code)))
+          else Error (Http_error code)))
   with
-  | Eio.Time.Timeout ->
-    Error (Printf.sprintf "Pushgateway push timed out after %gs" timeout)
+  | Eio.Time.Timeout -> Error (Timeout timeout)
   | Eio.Cancel.Cancelled _ as exn -> raise exn
   | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-  | exn              -> Error ("Pushgateway push: " ^ Printexc.to_string exn)
+  | Invalid_argument msg -> Error (Invalid_config msg)
+  | exn -> Error (Network_error (Printexc.to_string exn))
 
 (* ------------------------------------------------------------------ *)
 (* Public API                                                          *)

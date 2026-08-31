@@ -404,7 +404,7 @@ let test_push_empty_renderer () =
   let (_backend, render) = Obs_prometheus.create () in
   let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                  ~url:"http://localhost:9091" ~job:"test" render in
-  Alcotest.(check (result unit string)) "empty renderer → Ok ()" (Ok ()) result
+  Alcotest.(check bool) "empty renderer → Ok ()" true (Result.is_ok result)
 
 let test_push_propagates_cancelled () =
   Eio_main.run @@ fun env ->
@@ -455,7 +455,7 @@ let test_push_simple_job () =
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"my-worker" render in
-    Alcotest.(check (result unit string)) "simple job → Ok ()" (Ok ()) result;
+    Alcotest.(check bool) "simple job → Ok ()" true (Result.is_ok result);
     Alcotest.(check string) "method is PUT"  "PUT"                !last_method;
     Alcotest.(check string) "path is correct" "/metrics/job/my-worker" !last_path;
     Alcotest.(check bool)   "content-type header"
@@ -472,7 +472,7 @@ let test_push_job_name_escaping () =
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"my job/v2" render in
-    Alcotest.(check (result unit string)) "escaped job → Ok ()" (Ok ()) result;
+    Alcotest.(check bool) "escaped job → Ok ()" true (Result.is_ok result);
     (* Space → %20, slash → %2F (or %2f) — neither must appear raw in the path *)
     Alcotest.(check bool) "space not raw in path"
       false (contains !last_path " ");
@@ -490,7 +490,7 @@ let test_push_explicit_port () =
     let url = Printf.sprintf "http://127.0.0.1:%d" port in
     let result = Obs_prometheus.push ~net:env#net ~clock:env#clock
                    ~url ~job:"worker" render in
-    Alcotest.(check (result unit string)) "explicit port → Ok ()" (Ok ()) result;
+    Alcotest.(check bool) "explicit port → Ok ()" true (Result.is_ok result);
     Alcotest.(check string) "method PUT" "PUT" !last_method;
     Alcotest.(check string) "path" "/metrics/job/worker" !last_path)
 
@@ -505,9 +505,9 @@ let test_push_non_2xx_response () =
                    ~url ~job:"worker" render in
     match result with
     | Ok ()    -> Alcotest.fail "expected Error for 400 response"
-    | Error msg ->
-      Alcotest.(check bool) "error message contains 400"
-        true (contains msg "400"))
+    | Error (Obs_prometheus.Http_error 400) -> ()
+    | Error e ->
+      Alcotest.failf "expected Http_error 400, got: %s" (Obs_prometheus.push_error_to_string e))
 
 let test_push_500_response () =
   Eio_main.run @@ fun env ->
@@ -520,9 +520,9 @@ let test_push_500_response () =
                    ~url ~job:"worker" render in
     match result with
     | Ok ()    -> Alcotest.fail "expected Error for 500 response"
-    | Error msg ->
-      Alcotest.(check bool) "error message contains 500"
-        true (contains msg "500"))
+    | Error (Obs_prometheus.Http_error 500) -> ()
+    | Error e ->
+      Alcotest.failf "expected Http_error 500, got: %s" (Obs_prometheus.push_error_to_string e))
 
 (* ------------------------------------------------------------------ *)
 (* Live Pushgateway tests (require PUSHGATEWAY_URL env var)           *)
@@ -558,7 +558,7 @@ let test_live_push () =
          (`Gauge 3.14));
     (match Obs_prometheus.push ~net:env#net ~clock:env#clock
              ~url:pg_url ~job:unique_job render with
-     | Error msg -> Alcotest.failf "push failed: %s" msg
+     | Error e -> Alcotest.failf "push failed: %s" (Obs_prometheus.push_error_to_string e)
      | Ok () -> ());
     (* Optionally verify via Prometheus query API — requires PROMETHEUS_URL. *)
     (match prom_url_opt with

@@ -34,6 +34,15 @@ val create : unit -> Obs_eio.backend * (unit -> string)
     conflicting HELP string is not one of these: the first-registered text
     wins and later ones are ignored. *)
 
+type push_error =
+  | Invalid_config of string  (** Invalid [timeout] or [url], rejected before any I/O. *)
+  | Tls_setup of string       (** TLS setup failed for an [https://] URL. *)
+  | Timeout of float          (** The push did not complete within this many seconds. *)
+  | Http_error of int         (** Pushgateway responded with this non-2xx status. *)
+  | Network_error of string   (** Connection failure, or any other transport-level exception. *)
+
+val push_error_to_string : push_error -> string
+
 val push
   :  net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
@@ -48,11 +57,9 @@ val push
      (** Pushgateway job label, e.g. ["payments-worker"] *)
   -> (unit -> string)
      (** The renderer returned by [create] *)
-  -> (unit, string) result
+  -> (unit, push_error) result
 (** Push the current metric snapshot to a Prometheus Pushgateway.
     Returns [Ok ()] immediately if the renderer produces no output (no metrics emitted yet).
     Otherwise performs one synchronous HTTP PUT on the calling fiber, bounded by
-    [timeout]. Returns [Error msg] for invalid timeout/URL, timeout, TLS setup
-    failure, connection failure, or non-2xx HTTP response. [Eio.Cancel.Cancelled]
-    is always re-raised, never converted to [Error]. For long-running services use
-    the renderer + scrape endpoint instead. *)
+    [timeout]. [Eio.Cancel.Cancelled] is always re-raised, never converted to
+    [Error]. For long-running services use the renderer + scrape endpoint instead. *)
