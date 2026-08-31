@@ -382,6 +382,7 @@ type push_error =
   | Tls_setup of string
   | Timeout of float
   | Http_error of int
+  | Response_too_large of int
   | Network_error of string
 
 let push_error_to_string = function
@@ -389,6 +390,8 @@ let push_error_to_string = function
   | Tls_setup msg -> "Pushgateway push: " ^ msg
   | Timeout t -> Printf.sprintf "Pushgateway push timed out after %gs" t
   | Http_error code -> Printf.sprintf "Pushgateway returned HTTP %d" code
+  | Response_too_large max_bytes ->
+    Printf.sprintf "Pushgateway response exceeded the %d-byte limit" max_bytes
   | Network_error msg -> "Pushgateway push: " ^ msg
 
 let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
@@ -404,6 +407,7 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
     | Error (Https_eio.Invalid_config msg) -> Error (Invalid_config msg)
     | Error (Https_eio.Tls_setup msg) -> Error (Tls_setup msg)
     | Error (Https_eio.Timeout t) -> Error (Timeout t)
+    | Error (Https_eio.Response_too_large max_bytes) -> Error (Response_too_large max_bytes)
     | Error (Https_eio.Network_error msg) -> Error (Network_error msg)
 
 (* ------------------------------------------------------------------ *)

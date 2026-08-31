@@ -387,16 +387,21 @@ let with_mock_pushgateway env ~status_code f =
   in
   let server = Cohttp_eio.Server.make ~callback () in
   let addr   = `Tcp (Eio.Net.Ipaddr.V4.loopback, 0) in
-  let socket = Eio.Net.listen ~backlog:1 ~sw env#net addr in
-  let port   = Eio.Net.listening_addr socket |> (function
-    | `Tcp (_, p) -> p
-    | _ -> failwith "unexpected address family") in
-  Eio.Fiber.fork_daemon ~sw (fun () ->
-    Cohttp_eio.Server.run ~stop ~on_error:(fun _ -> ()) socket server;
-    `Stop_daemon);
-  let result = f ~port ~last_method ~last_path ~last_content_type ~last_body in
-  Eio.Promise.resolve stop_r ();
-  result
+  match Eio.Net.listen ~backlog:1 ~sw env#net addr with
+  | exception Unix.Unix_error (Unix.EPERM, "bind", _) ->
+    (* Some sandboxed CI environments (e.g. opam-repository's macOS build
+       sandbox) forbid binding even a loopback socket. *)
+    Printf.printf "[skip] sandboxed environment forbids binding a local socket\n%!"
+  | socket ->
+    let port = Eio.Net.listening_addr socket |> (function
+      | `Tcp (_, p) -> p
+      | _ -> failwith "unexpected address family") in
+    Eio.Fiber.fork_daemon ~sw (fun () ->
+      Cohttp_eio.Server.run ~stop ~on_error:(fun _ -> ()) socket server;
+      `Stop_daemon);
+    let result = f ~port ~last_method ~last_path ~last_content_type ~last_body in
+    Eio.Promise.resolve stop_r ();
+    result
 
 let test_push_empty_renderer () =
   (* Must return Ok () without hitting the network when render () = "". *)
