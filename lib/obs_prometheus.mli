@@ -34,6 +34,16 @@ val create : unit -> Obs_eio.backend * (unit -> string)
     conflicting HELP string is not one of these: the first-registered text
     wins and later ones are ignored. *)
 
+val serve
+  :  sw:Eio.Switch.t
+  -> net:_ Eio.Net.t
+  -> Eio.Net.Sockaddr.stream
+  -> (unit -> string)
+  -> unit
+(** [serve ~sw ~net addr renderer] starts a daemon HTTP server on [addr].
+    [GET /metrics] returns [renderer ()] as Prometheus text exposition;
+    other paths return [404]. The server runs until [sw] is released. *)
+
 type push_error =
   | Invalid_config of string  (** Invalid [timeout] or [url], rejected before any I/O. *)
   | Tls_setup of string       (** TLS setup failed for an [https://] URL. *)

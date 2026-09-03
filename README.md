@@ -42,6 +42,14 @@ val create : unit -> Obs_eio.backend * (unit -> string)
 
     The backend is safe to use from multiple fibers and domains simultaneously. *)
 
+val serve
+  :  sw:Eio.Switch.t
+  -> net:_ Eio.Net.t
+  -> Eio.Net.Sockaddr.stream
+  -> (unit -> string)
+  -> unit
+(** Start a small scrape server. GET /metrics returns the renderer output. *)
+
 val push
   :  net:_ Eio.Net.t
   -> clock:_ Eio.Time.clock
@@ -168,8 +176,8 @@ let request_latency = Obs_eio.register_histogram ot
 msgs_processed ~labels:[("topic", "payments"); ("status", "ok")] 1;
 request_latency ~labels:[("route", "/charge")] 0.042;
 
-(* Expose /metrics — wire render() into your HTTP handler: *)
-let metrics_body = render () in
+Obs_prometheus.serve ~sw ~net:env#net
+  (`Tcp (Eio.Net.Ipaddr.V4.any, 9090)) render;
 ```
 
 To expose both metrics and tracing/logging from one `Obs_eio.t`, compose this backend with
@@ -192,8 +200,7 @@ docker run -d --name prometheus -p 9090:9090 prom/prometheus
 
 ## Out of Scope (v1)
 
-- `/metrics` HTTP server — the renderer returns a string; wiring it to an HTTP endpoint
-  is the caller's responsibility
+- Route framework integration — `serve` exposes only `GET /metrics`
 - Metric expiry / staleness — counters and gauges accumulate indefinitely
 - OpenMetrics format (`application/openmetrics-text`) — standard text exposition only
 - `emit_span` — spans go to a logging/tracing backend such as `obs-loki-eio`; this

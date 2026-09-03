@@ -410,6 +410,26 @@ let push ~net ~clock ?(timeout = 5.0) ?(headers = []) ~url ~job renderer =
     | Error (Https_eio.Response_too_large max_bytes) -> Error (Response_too_large max_bytes)
     | Error (Https_eio.Network_error msg) -> Error (Network_error msg)
 
+let serve ~sw ~net addr renderer =
+  let callback _conn req _body =
+    match Http.Request.meth req, Uri.path (Uri.of_string (Http.Request.resource req)) with
+    | `GET, "/metrics" ->
+      Cohttp_eio.Server.respond
+        ~status:`OK
+        ~headers:(Http.Header.of_list [("Content-Type", "text/plain; version=0.0.4; charset=utf-8")])
+        ~body:(Cohttp_eio.Body.of_string (renderer ()))
+        ()
+    | _ ->
+      Cohttp_eio.Server.respond ~status:`Not_found
+        ~body:(Cohttp_eio.Body.of_string "") ()
+  in
+  let socket = Eio.Net.listen ~backlog:128 ~sw net addr in
+  let stop, _stop_r = Eio.Promise.create () in
+  let server = Cohttp_eio.Server.make ~callback () in
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+    Cohttp_eio.Server.run ~stop ~on_error:(fun _ -> ()) socket server;
+    `Stop_daemon)
+
 (* ------------------------------------------------------------------ *)
 (* Public API                                                          *)
 (* ------------------------------------------------------------------ *)
