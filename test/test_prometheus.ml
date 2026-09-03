@@ -529,6 +529,38 @@ let test_push_500_response () =
     | Error e ->
       Alcotest.failf "expected Http_error 500, got: %s" (Obs_prometheus.push_error_to_string e))
 
+let test_serve_metrics_endpoint () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let backend, render = Obs_prometheus.create () in
+  backend.Obs_eio.emit_metric
+    (make_event ~name:"worker_messages_total" ~help:"messages" (`Counter 1));
+  match Eio.Net.listen ~backlog:1 ~sw env#net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0)) with
+  | exception Unix.Unix_error (Unix.EPERM, "bind", _) ->
+    Printf.printf "[skip] sandboxed environment forbids binding a local socket\n%!"
+  | socket ->
+    let port = Eio.Net.listening_addr socket |> function
+      | `Tcp (_, p) -> p
+      | _ -> failwith "unexpected address family"
+    in
+    Eio.Flow.close socket;
+    Obs_prometheus.serve ~sw ~net:env#net
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port)) render;
+    let client = Cohttp_eio.Client.make ~https:None env#net in
+    let get path =
+      Eio.Switch.run @@ fun sw ->
+      let uri = Uri.of_string (Printf.sprintf "http://127.0.0.1:%d%s" port path) in
+      let resp, body = Cohttp_eio.Client.call client ~sw `GET uri in
+      let body = Eio.Buf_read.(parse_exn take_all) body ~max_size:(64 * 1024) in
+      (Http.Response.status resp, body)
+    in
+    let status, body = get "/metrics" in
+    Alcotest.(check int) "GET /metrics status" 200 (Http.Status.to_int status);
+    Alcotest.(check bool) "metrics body contains counter" true
+      (contains body "worker_messages_total 1");
+    let status, _body = get "/nope" in
+    Alcotest.(check int) "GET /nope status" 404 (Http.Status.to_int status)
+
 (* ------------------------------------------------------------------ *)
 (* Live Pushgateway tests (require PUSHGATEWAY_URL env var)           *)
 (* ------------------------------------------------------------------ *)
@@ -629,6 +661,9 @@ let () =
       test_case "explicit port in URL is honoured"           `Quick test_push_explicit_port;
       test_case "HTTP 400 response yields Error"             `Quick test_push_non_2xx_response;
       test_case "HTTP 500 response yields Error"             `Quick test_push_500_response;
+    ];
+    "serve", [
+      test_case "GET /metrics exposes renderer" `Quick test_serve_metrics_endpoint;
     ];
     "live", [
       test_case "push to Pushgateway and verify in Prometheus" `Slow test_live_push;
